@@ -101,7 +101,7 @@ def procesar_archivo_excel(ruta_archivo):
     registrar_asset(session_token, asset_data)
 
 # Ruta del archivo Excel
-ruta_archivo = "C:/Users/sebastian.salgado/Desktop/script/Inventario Rittal_SCO y OSF_16 Nov 2021.xlsx"
+ruta_archivo = "C:/Users/sebas/Desktop/GLPI-Asset-Automator/Inventario Rittal_SCO y OSF_16 Nov 2021.xlsx"
 
 # Ejecutar el proceso
 procesar_archivo_excel(ruta_archivo)
