@@ -20,10 +20,9 @@ Usuario: glpi
 
 Contraseña: glpi
 
-
 # Estructura de carpetas
 
-- /code: Legacy code, que almacena versiones o funcionalidad anteriores
+- /tests: Legacy code, que almacena versiones o funcionalidad anteriores
 - /image: imagenes varias
 - /others: Archivos auxiliares
 - root/:

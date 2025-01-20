@@ -1,0 +1,10 @@
+Asset Type: Computer
+Status: Activo
+User: Nb-seba
+Name: Nb-seba-MacBookPro
+Computer Types: Laptop
+Location: Rack A
+Manufacturer: Apple
+Model: MacBook Pro
+Serial Number: SF2WN4N77MC
+Comments: Check

@@ -6,8 +6,6 @@ import requests
 import json
 from dotenv import load_dotenv
 import urllib3
-import re
-
 
 # Deshabilitar las advertencias de SSL
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -329,149 +327,15 @@ def agregar_a_excel(asset_data):
     except Exception as e:
         print(f"Error al guardar los datos: {e}")
 
-def procesar_qr_dell(qr_data):
-    # Plantilla de la laptop Dell Latitude
-    plantilla_dell = {
-        "Asset Type": "Computer",
-        "Status": None,  # Solicitar por pantalla
-        "User": None,    # Solicitar por pantalla
-        "Name": None,    # Generado a partir del nombre del usuario
-        "Computer Types": "Laptop",
-        "Location": None,  # Solicitar por pantalla
-        "Manufacturer": "Dell",
-        "Model": "Latitude",
-        "Serial Number": qr_data.strip(),  # QR escaneado de la laptop
-        "Comments": "Check",
-    }
-
-    # Solicitar datos adicionales al usuario
-    plantilla_dell["Status"] = input("Ingrese el estado del activo (Activo/Inactivo): ").strip()
-    plantilla_dell["User"] = input("Ingrese el nombre del usuario: ").strip()
-    plantilla_dell["Location"] = input("Ingrese la ubicación del activo: ").strip()
-    
-    # Generar el nombre del activo a partir del usuario
-    plantilla_dell["Name"] = f"{plantilla_dell['User']}-Latitude"
-
-    return plantilla_dell
-
-def procesar_qr_mac(qr_data):
-    # Plantilla para laptops MacBook
-    plantilla_mac = {
-        "Asset Type": "Computer",
-        "Status": None,  # Solicitar por pantalla
-        "User": None,    # Solicitar por pantalla
-        "Name": None,    # Generado a partir del nombre del usuario
-        "Computer Types": "Laptop",
-        "Location": None,  # Solicitar por pantalla
-        "Manufacturer": "Apple",
-        "Model": "MacBook Pro",
-        "Serial Number": qr_data.strip(),  # QR escaneado de la laptop
-        "Comments": "Check",
-    }
-
-    # Solicitar datos adicionales al usuario
-    plantilla_mac["Status"] = input("Ingrese el estado del activo (Activo/Inactivo): ").strip()
-    plantilla_mac["User"] = input("Ingrese el nombre del usuario: ").strip()
-    plantilla_mac["Location"] = input("Ingrese la ubicación del activo: ").strip()
-    
-    # Generar el nombre del activo a partir del usuario
-    plantilla_mac["Name"] = f"{plantilla_mac['User']}-MacBookPro"
-
-    return plantilla_mac
-
-def guardar_plantilla_txt(asset_data, nombre_archivo):
-    with open(nombre_archivo, 'w') as file:
-        for key, value in asset_data.items():
-            file.write(f"{key}: {value}\n")
-    print(f"Plantilla guardada en {nombre_archivo}")
-
-def agregar_a_excel_dell(asset_data):
-    try:
-        df = pd.read_excel(ruta_excel)
-        nuevo_registro = pd.DataFrame([asset_data])  # Convertir la plantilla a un DataFrame de una fila
-        df = pd.concat([df, nuevo_registro], ignore_index=True)
-        df.to_excel(ruta_excel, index=False)
-        print("Datos registrados exitosamente en el Excel.")
-
-        # Guardar la plantilla en un archivo .txt
-        nombre_archivo_txt = f"C:/Users/sebastian.salgado/Desktop/GLPI-Asset-Automator/Templates/{asset_data['Name']}.txt"
-        guardar_plantilla_txt(asset_data, nombre_archivo_txt)
-
-    except Exception as e:
-        print(f"Error al guardar los datos: {e}")
-
-def agregar_a_excel_mac(asset_data):
-    try:
-        df = pd.read_excel(ruta_excel)
-        nuevo_registro = pd.DataFrame([asset_data])  # Convertir la plantilla a un DataFrame de una fila
-        df = pd.concat([df, nuevo_registro], ignore_index=True)
-        df.to_excel(ruta_excel, index=False)
-        print("Datos registrados exitosamente en el Excel.")
-
-        # Guardar la plantilla en un archivo .txt
-        nombre_archivo_txt = f"C:/Users/sebastian.salgado/Desktop/GLPI-Asset-Automator/Templates/{asset_data['Name']}.txt"
-        guardar_plantilla_txt(asset_data, nombre_archivo_txt)
-
-    except Exception as e:
-        print(f"Error al guardar los datos: {e}")
-        
-def extraer_service_tag(qr_data):
-    match = re.search(r"Service tag:\s*([A-Za-z0-9]+)", qr_data, re.IGNORECASE)
-    if match:
-        return match.group(1).strip()
-    return None
-
-def manejar_qr_dell():
-    qr_data = escanear_qr_con_celular()
-    if qr_data:
-        # Mejorar la detección para considerar patrones adicionales
-        if any(keyword in qr_data.lower() for keyword in ["dell", "service tag", "made in vietnam"]) or qr_data.startswith("CS"):
-            print("Laptop Dell detectada. Procesando datos...")
-            
-            if len(qr_data) > 7:  # Verificar si el QR escaneado contiene más información de la cuenta
-                service_tag = extraer_service_tag(qr_data)
-            else:
-                service_tag = qr_data  # Si solo tiene el serial en QR directamente
-            
-            if service_tag:
-                print(f"Service Tag detectado: {service_tag}")
-                confirmacion = input("¿Es correcto este Service Tag, desea continuar? (sí/no): ").strip().lower()
-                if confirmacion not in ["sí", "si"]:
-                    print("Operación cancelada por el usuario.")
-                    return
-                else:
-                    asset_data = procesar_qr_dell(service_tag)
-                    agregar_a_excel_dell(asset_data)
-            else:
-                print("No se detectó un Service Tag válido en el QR escaneado.")
-        else:
-            print("Código QR no corresponde a un equipo Dell.")
-    else:
-        print("No se detectó ningún código QR.")
-
-def manejar_qr_mac():
-    qr_data = escanear_qr_con_celular()
-    if qr_data:
-        if "MacBook" in qr_data or "Serial Number:" in qr_data or qr_data.startswith("C02") or 10<= len(qr_data) <= 12:  # Detectar si es Mac por patrones comunes
-            print("Laptop MacBook detectada. Procesando datos...")
-            asset_data = procesar_qr_mac(qr_data)
-            agregar_a_excel_mac(asset_data)
-        else:
-            print("Código QR no corresponde a un equipo Mac.")
-    else:
-        print("No se detectó ningún código QR.")
-
 # Menú interactivo
 def main():
     while True:
         print("\n--- Menú de opciones ---")
-        print("1. Escanear QR y registrar en Excel (Template Default)")
-        print("2. Escanear QR y registrar laptops Dell")
-        print("3. Escanear QR y registrar laptops Mac")
-        print("4. Registrar la última fila del Excel en GLPI")
-        print("5. Registrar un activo por nombre")
-        print("6. Registrar todos los activos de Excel en GLPI")
-        print("7. Salir")
+        print("1. Escanear QR y registrar en Excel")
+        print("2. Registrar la última fila del Excel en GLPI")
+        print("3. Registrar un activo por nombre")
+        print("4. Registrar todos los activos de Excel en GLPI")
+        print("5. Salir")
         
         opcion = input("Seleccione una opción: ").strip()
         
@@ -481,21 +345,16 @@ def main():
                 asset_data = parse_qr_data(codigo)
                 agregar_a_excel(asset_data)
         elif opcion == "2":
-            manejar_qr_dell()
-        elif opcion == "3":
-            manejar_qr_mac()
-        elif opcion == "4":
             registrar_ultima_fila()
-        elif opcion == "5":
+        elif opcion == "3":
             registrar_por_nombre()
-        elif opcion == "6":
+        elif opcion == "4":
             procesar_archivo_excel(ruta_excel)
-        elif opcion == "7":
+        elif opcion == "5":
             print("Saliendo del programa...")
             break
         else:
             print("Opción no válida. Intente nuevamente.")
-
 
 if __name__ == "__main__":
     main()

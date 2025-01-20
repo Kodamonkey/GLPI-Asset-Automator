@@ -1,0 +1,11 @@
+Asset Type: "Computer"
+Status: {Solicitar por pantalla}
+User: {Solicitar por pantalla}
+Name: {A partir del nombre del usuario}
+Computer Types: "LapTop"
+Location: {Solicitar por pantalla}
+Manufacturer: "Macbook"
+Model: "Pro"
+Serial Number: {Se obtiene escaneando el QR de la compu}
+Comments: "Check"
+Status: {Solicitar por pantalla}

@@ -1,0 +1,11 @@
+Asset Type: "Computer"
+Status: {Solicitar por pantalla}
+User: {Solicitar por pantalla}
+Name: {A partir del nombre del usuario}
+Computer Types: "LapTop"
+Location: {Solicitar por pantalla}
+Manufacturer: "Dell"
+Model: "Latitude"
+Serial Number: {Se obtiene escaneando el QR de la compu}
+Comments: "Check"
+Status: {Solicitar por pantalla}
