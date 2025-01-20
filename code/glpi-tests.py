@@ -175,5 +175,5 @@ def procesar_archivo_excel(ruta_archivo):
         print(f"Procesando fila {index + 1}: {asset_data} como {asset_type}")
         registrar_asset(session_token, asset_data, asset_type)
 
-ruta_archivo = "C:/Users/sebas/Desktop/GLPI-Asset-Automator/Excel-tests.xlsx"
+ruta_archivo = "C:/Users/sebastian.salgado/Desktop/GLPI-Asset-Automator/Excel-tests.xslx"
 procesar_archivo_excel(ruta_archivo)
