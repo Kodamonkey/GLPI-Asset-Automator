@@ -137,7 +137,7 @@ def agregar_a_excel(dato):
         sheet = workbook.active
         nueva_fila = [dato["Asset Type"], dato["Name"], dato["Location"], dato["Manufacturer"], dato["Model"], 
                       dato["Serial Number"], dato["Inventory Number"], dato["Comments"], 
-                      dato["Technician in Charge"], dato["Group in Charge"], dato["Status"]]
+                      dato["Technician in Charge"], dato["Group in Charge"], dato["Status"], dato["Specific Fields (Dynamic Column)"]]
         sheet.append(nueva_fila)
         workbook.save(ruta_excel)
         print("Datos registrados exitosamente en el Excel.")
