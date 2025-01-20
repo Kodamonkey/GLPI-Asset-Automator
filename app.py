@@ -1,11 +1,11 @@
 import pandas as pd
-import cv2
-from pyzbar.pyzbar import decode
+import cv2  # Para la captura de QR
+from pyzbar.pyzbar import decode  # Decodificar QR
+import os
+from openpyxl import load_workbook
 import requests
 import json
-import os
 from dotenv import load_dotenv
-from openpyxl import load_workbook
 import urllib3
 
 # Deshabilitar las advertencias de SSL
@@ -19,20 +19,16 @@ GLPI_URL = os.getenv("GLPI_URL")
 USER_TOKEN = os.getenv("USER_TOKEN")
 APP_TOKEN = os.getenv("APP_TOKEN")
 
-# Validar que las variables estén configuradas
-if not GLPI_URL or not USER_TOKEN or not APP_TOKEN:
-    raise ValueError("Las variables GLPI_URL, USER_TOKEN o APP_TOKEN no están definidas correctamente.")
-
 # Ruta del archivo Excel
-ruta_excel = "inventario_componentes.xlsx"
+ruta_excel = "C:/Users/sebas/Desktop/GLPI-Asset-Automator/Inventario Rittal_SCO y OSF_16 Nov 2021.xlsx"
 
 # Crear archivo Excel si no existe
 if not os.path.exists(ruta_excel):
-    columnas_necesarias = ["Código", "Componente", "Marca", "Ubicación", "Comentarios"]
+    columnas_necesarias = ["Asset Type", "Name", "Location", "Manufacturer", "Model", "Serial Number", 
+                           "Inventory Number", "Comments", "Technician in Charge", "Group in Charge", "Status"]
     df = pd.DataFrame(columns=columnas_necesarias)
     df.to_excel(ruta_excel, index=False)
 
-# Función para obtener el token de sesión de GLPI
 def obtener_token_sesion():
     headers = {
         "Authorization": f"user_token {USER_TOKEN}",
@@ -43,22 +39,62 @@ def obtener_token_sesion():
         return response.json().get("session_token")
     else:
         print(f"Error al iniciar sesión: {response.status_code}")
-        print(f"Detalles del error: {response.json()}")
         return None
 
-# Función para registrar un asset en GLPI
-def registrar_asset_glpi(session_token, asset_data):
+def obtener_location_id(session_token, location_name):
     headers = {
         "Content-Type": "application/json",
         "Session-Token": session_token,
         "App-Token": APP_TOKEN
     }
-    asset_data_array = {"input": [asset_data]}  # Estructura correcta para la API
-    response = requests.post(f"{GLPI_URL}/Computer", headers=headers, data=json.dumps(asset_data_array), verify=False)
+    
+    params = {'searchText': location_name}
+    response = requests.get(f"{GLPI_URL}/Location", headers=headers, params=params, verify=False)
+
+    if response.status_code == 200:
+        locations = response.json()
+        for location in locations:
+            if location.get("name", "").strip().lower() == location_name.strip().lower():
+                return location["id"]
+    return None
+
+def obtener_manufacturer_id(session_token, manufacturer_name):
+    headers = {
+        "Content-Type": "application/json",
+        "Session-Token": session_token,
+        "App-Token": APP_TOKEN
+    }
+    
+    params = {'searchText': manufacturer_name}
+    response = requests.get(f"{GLPI_URL}/Manufacturer", headers=headers, params=params, verify=False)
+
+    if response.status_code == 200:
+        manufacturers = response.json()
+        for manufacturer in manufacturers:
+            if manufacturer.get("name", "").strip().lower() == manufacturer_name.strip().lower():
+                return manufacturer["id"]
+    return None
+
+def registrar_asset(session_token, asset_data, asset_type):
+    headers = {
+        "Content-Type": "application/json",
+        "Session-Token": session_token,
+        "App-Token": APP_TOKEN
+    }
+
+    endpoint = {
+        "Computer": "/Computer",
+        "Network Equipment": "/NetworkEquipment",
+        "Consumables": "/ConsumableItem",
+    }.get(asset_type, "/Computer")
+    
+    asset_data_array = {"input": [asset_data]}
+    response = requests.post(f"{GLPI_URL}{endpoint}", headers=headers, data=json.dumps(asset_data_array), verify=False)
+    
     if response.status_code == 201:
-        print(f"Asset registrado exitosamente en GLPI: {asset_data['name']}")
+        print(f"Asset registrado exitosamente: {asset_data['name']}")
     else:
-        print(f"Error al registrar asset en GLPI: {response.status_code}")
+        print(f"Error al registrar asset: {response.status_code}")
         try:
             print(response.json())
         except json.JSONDecodeError:
@@ -86,6 +122,7 @@ def escanear_qr():
             return qr_data
 
         cv2.imshow("Escaneando QR", frame)
+
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
 
@@ -94,11 +131,13 @@ def escanear_qr():
     return None
 
 # Función para agregar datos al Excel
-def agregar_a_excel(datos):
+def agregar_a_excel(dato):
     try:
         workbook = load_workbook(ruta_excel)
         sheet = workbook.active
-        nueva_fila = [datos["Código"], datos["Componente"], datos["Marca"], datos["Ubicación"], datos["Comentarios"]]
+        nueva_fila = [dato["Asset Type"], dato["Name"], dato["Location"], dato["Manufacturer"], dato["Model"], 
+                      dato["Serial Number"], dato["Inventory Number"], dato["Comments"], 
+                      dato["Technician in Charge"], dato["Group in Charge"], dato["Status"]]
         sheet.append(nueva_fila)
         workbook.save(ruta_excel)
         print("Datos registrados exitosamente en el Excel.")
@@ -107,14 +146,9 @@ def agregar_a_excel(datos):
 
 # Función principal
 def main():
-    session_token = obtener_token_sesion()
-    if not session_token:
-        print("No se pudo obtener el token de sesión de GLPI.")
-        return
-
     print("¿Deseas escanear un QR o ingresar un número de serie manualmente?")
     opcion = input("Escribe 'QR' para escanear o 'manual' para ingresar: ").strip().lower()
-
+    
     if opcion == "qr":
         codigo = escanear_qr()
     elif opcion == "manual":
@@ -127,28 +161,32 @@ def main():
         print("No se detectó ningún código.")
         return
 
-    # Simular búsqueda de datos (puedes integrar una lógica real aquí)
-    datos = {
-        "Código": codigo,
-        "Componente": "Componente Desconocido",
-        "Marca": "Marca Desconocida",
-        "Ubicación": "Ubicación Desconocida",
-        "Comentarios": "Sin comentarios"
-    }
+    df = pd.read_excel(ruta_excel)
+    asset_data = df[df["Serial Number"] == codigo].to_dict(orient="records")
 
-    print(f"Procesando: {datos}")
-    agregar_a_excel(datos)
+    if asset_data:
+        asset_data = asset_data[0]
 
-    # Registrar en GLPI
-    asset_data = {
-        "name": datos["Componente"],
-        "serial": datos["Código"],
-        "manufacturer": datos["Marca"],
-        "locations_id": datos["Ubicación"],
-        "comments": datos["Comentarios"],
-    }
-    registrar_asset_glpi(session_token, asset_data)
+        # Obtener session token
+        session_token = obtener_token_sesion()
+        if not session_token:
+            print("No se pudo obtener el token de sesión.")
+            return
 
-# Ejecutar la función principal
+        # Obtener IDs requeridos
+        location_id = obtener_location_id(session_token, asset_data["Location"])
+        manufacturer_id = obtener_manufacturer_id(session_token, asset_data["Manufacturer"])
+
+        if not location_id or not manufacturer_id:
+            print("Error al obtener ID de ubicación o fabricante.")
+            return
+
+        asset_data["locations_id"] = location_id
+        asset_data["manufacturers_id"] = manufacturer_id
+
+        registrar_asset(session_token, asset_data, asset_data["Asset Type"])
+    else:
+        print("No se encontraron datos asociados a ese código.")
+
 if __name__ == "__main__":
     main()

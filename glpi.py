@@ -93,7 +93,7 @@ def procesar_archivo_excel(ruta_archivo):
     asset_data = {
         "name": first_row["Componente"],
         "serial": first_row["Código"],
-        "manufacturer": first_row["Marca"],
+        "manufacturers": first_row["Marca"],
         "locations_id": first_row["Location elec. Rack"], #45
         "comments": first_row.get("Comentario", ""),
     }
