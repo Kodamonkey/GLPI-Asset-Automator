@@ -7,6 +7,7 @@ import json
 from dotenv import load_dotenv
 import urllib3
 import re
+import numpy as np
 
 
 # Deshabilitar las advertencias de SSL
@@ -76,7 +77,48 @@ def obtener_manufacturer_id(session_token, manufacturer_name):
                 return manufacturer["id"]
     return None
 
+def limpiar_asset_data(asset_data):
+    cleaned_data = {}
+    for key, value in asset_data.items():
+        # Reemplazar NaN con una cadena vacía o un valor por defecto
+        if isinstance(value, (float, np.float64)) and np.isnan(value):
+            cleaned_data[key] = ""
+        elif value is None:
+            cleaned_data[key] = ""
+        else:
+            cleaned_data[key] = value
+    return cleaned_data
+
+def verificar_existencia_asset(session_token, serial_number):
+    headers = {
+        "Content-Type": "application/json",
+        "Session-Token": session_token,
+        "App-Token": APP_TOKEN
+    }
+
+    params = {"searchText": serial_number, "range": "0-999"}
+    response = requests.get(f"{GLPI_URL}/search/Computer", headers=headers, params=params, verify=False)
+
+    if response.status_code == 200:
+        assets = response.json().get("data", [])
+        for asset in assets:
+            if asset.get('5', '').strip() == serial_number:
+                print(f"El activo con número de serie '{serial_number}' ya existe en GLPI con ID: {asset.get('1')}")
+                return True
+    else:
+        print(f"Error al verificar existencia del activo: {response.status_code}")
+        try:
+            print(response.json())
+        except json.JSONDecodeError:
+            print(response.text)
+    
+    return False
+
 def registrar_asset(session_token, asset_data, asset_type):
+    if verificar_existencia_asset(session_token, asset_data["serial"]):
+        print(f"El activo con número de serie {asset_data['serial']} ya existe en GLPI. No se realizará el registro.")
+        return
+
     headers = {
         "Content-Type": "application/json",
         "Session-Token": session_token,
@@ -88,12 +130,17 @@ def registrar_asset(session_token, asset_data, asset_type):
         "Network Equipment": "/NetworkEquipment",
         "Consumables": "/ConsumableItem",
     }.get(asset_type, "/Computer")
+
+    # Limpiar datos antes de enviarlos
+    asset_data_clean = limpiar_asset_data(asset_data)
+
+    # Crear la estructura correcta para la API de GLPI
+    asset_data_array = {"input": [asset_data_clean]}
     
-    asset_data_array = {"input": [asset_data]}
     response = requests.post(f"{GLPI_URL}{endpoint}", headers=headers, data=json.dumps(asset_data_array), verify=False)
     
     if response.status_code == 201:
-        print(f"Asset registrado exitosamente: {asset_data['name']}")
+        print(f"Asset registrado exitosamente: {asset_data_clean['name']}")
     else:
         print(f"Error al registrar asset: {response.status_code}")
         try:
@@ -139,7 +186,7 @@ def registrar_ultima_fila():
         "locations_id": location_id,
         "manufacturers_id": manufacturer_id,
         "serial": last_row["Serial Number"].strip(),
-        "otherserial": last_row["Inventory Number"].strip(),
+        #"otherserial": last_row["Inventory Number"].strip(),
         "comments": last_row["Comments"].strip(),
     }
 
@@ -176,7 +223,7 @@ def registrar_por_nombre():
         "locations_id": location_id,
         "manufacturers_id": manufacturer_id,
         "serial": row["Serial Number"].strip(),
-        "otherserial": row["Inventory Number"].strip(),
+        #"otherserial": row["Inventory Number"].strip(),
         "comments": row["Comments"].strip(),
     }
 
@@ -237,14 +284,13 @@ def procesar_archivo_excel(ruta_archivo):
             "locations_id": location_id, 
             "manufacturers_id": manufacturer_id,
             "serial": row["Serial Number"].strip(),
-            "otherserial": row["Inventory Number"].strip(),
+            #"otherserial": row["Inventory Number"].strip(),
             "comments": row["Comments"].strip(),
         }
 
         print(f"Procesando fila {index + 1}: {asset_data} como {asset_type}")
         registrar_asset(session_token, asset_data, asset_type)
 
-# Función para escanear QR usando la cámara
 def escanear_qr():
     cap = cv2.VideoCapture(0)
     print("Apunta la cámara al código QR. Presiona 'q' para salir.")
@@ -277,34 +323,42 @@ def escanear_qr():
 def escanear_qr_con_celular():
     ip_cam_url = "https://10.200.253.178:8080/video"  # Cambiar por la URL de la cámara IP
 
-    cap = cv2.VideoCapture(ip_cam_url)
-    print("Usando la cámara del celular. Presiona 'q' para salir.")
-
     while True:
-        ret, frame = cap.read()
-        if not ret:
-            print("No se pudo acceder a la cámara del celular.")
-            break
-
-        gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        qr_codes = decode(gray_frame)
-
-        for qr in qr_codes:
-            qr_data = qr.data.decode('utf-8')
-            print(f"Código QR escaneado: \n{qr_data}")
+        cap = cv2.VideoCapture(ip_cam_url)
+        if not cap.isOpened():
+            print("No se pudo acceder a la cámara del celular. Reintentando en 5 segundos...")
             cap.release()
             cv2.destroyAllWindows()
-            return qr_data
+            cv2.waitKey(5000)  # Esperar 5 segundos antes de reintentar
+            continue
 
-        cv2.imshow("Escaneando QR con celular", frame)
+        print("Usando la cámara del celular. Presiona 'q' para salir.")
+        
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                print("Error al obtener el cuadro de la cámara. Reintentando conexión...")
+                break  # Sale del bucle interno para reintentar la conexión
+            
+            gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            qr_codes = decode(gray_frame)
 
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
+            for qr in qr_codes:
+                qr_data = qr.data.decode('utf-8')
+                print(f"Código QR escaneado: \n{qr_data}")
+                cap.release()
+                cv2.destroyAllWindows()
+                return qr_data
 
-    cap.release()
-    cv2.destroyAllWindows()
-    return None
+            cv2.imshow("Escaneando QR con celular", frame)
 
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                cap.release()
+                cv2.destroyAllWindows()
+                return None
+
+        cap.release()
+        cv2.destroyAllWindows()
 
 def parse_qr_data(qr_string):
     asset_data = {}
@@ -313,13 +367,30 @@ def parse_qr_data(qr_string):
         asset_data[key.strip()] = value.strip().replace('"', '')
     return asset_data
 
+def verificar_existencia_en_excel(serial_number):
+    df = pd.read_excel(ruta_excel)
+    if serial_number in df["Serial Number"].values:
+        print(f"El activo con número de serie '{serial_number}' ya existe en el Excel.")
+        return True
+    return False
+
 def agregar_a_excel(asset_data):
     try:
         df = pd.read_excel(ruta_excel)
+
+        if verificar_existencia_en_excel(asset_data["Serial Number"]):
+            print(f"El activo con serial '{asset_data['Serial Number']}' ya está registrado en el Excel. No se agregará.")
+            return
+
         nuevo_registro = pd.DataFrame([asset_data]) # Convertir el asset_data a un DataFrame de una fila
         df = pd.concat([df, nuevo_registro], ignore_index=True) # Agregar la nueva fila al DataFrame existente
         df.to_excel(ruta_excel, index=False) # Guardar el DataFrame actualizado en el Excel
         print("Datos registrados exitosamente en el Excel.")
+
+        # Guardar la plantilla en un archivo .txt
+        nombre_archivo_txt = f"C:/Users/sebastian.salgado/Desktop/GLPI-Asset-Automator/Templates/{asset_data['Name']}.txt"
+        guardar_plantilla_txt(asset_data, nombre_archivo_txt)
+
         # Preguntar si se desea registrar en GLPI
         registrar_glpi = input("¿Deseas registrar este activo en GLPI? (sí/no): ").strip().lower()
         if registrar_glpi == "sí" or registrar_glpi == "si":
@@ -333,20 +404,20 @@ def procesar_qr_dell(qr_data):
     # Plantilla de la laptop Dell Latitude
     plantilla_dell = {
         "Asset Type": "Computer",
-        "Status": None,  # Solicitar por pantalla
+        "Status": "Stocked",  # Solicitar por pantalla
         "User": None,    # Solicitar por pantalla
         "Name": None,    # Generado a partir del nombre del usuario
         "Computer Types": "Laptop",
         "Location": None,  # Solicitar por pantalla
-        "Manufacturer": "Dell",
+        "Manufacturer": "Dell inc.",
         "Model": "Latitude",
         "Serial Number": qr_data.strip(),  # QR escaneado de la laptop
         "Comments": "Check",
     }
 
     # Solicitar datos adicionales al usuario
-    plantilla_dell["Status"] = input("Ingrese el estado del activo (Activo/Inactivo): ").strip()
-    plantilla_dell["User"] = input("Ingrese el nombre del usuario: ").strip()
+    #plantilla_dell["Status"] = input("Ingrese el estado del activo (Activo/Inactivo): ").strip()
+    #plantilla_dell["User"] = input("Ingrese el nombre del usuario: ").strip()
     plantilla_dell["Location"] = input("Ingrese la ubicación del activo: ").strip()
     
     # Generar el nombre del activo a partir del usuario
@@ -358,20 +429,20 @@ def procesar_qr_mac(qr_data):
     # Plantilla para laptops MacBook
     plantilla_mac = {
         "Asset Type": "Computer",
-        "Status": None,  # Solicitar por pantalla
+        "Status": "Stocked",  # Solicitar por pantalla
         "User": None,    # Solicitar por pantalla
         "Name": None,    # Generado a partir del nombre del usuario
         "Computer Types": "Laptop",
         "Location": None,  # Solicitar por pantalla
-        "Manufacturer": "Apple",
+        "Manufacturer": "Apple Inc",
         "Model": "MacBook Pro",
         "Serial Number": qr_data.strip(),  # QR escaneado de la laptop
         "Comments": "Check",
     }
 
     # Solicitar datos adicionales al usuario
-    plantilla_mac["Status"] = input("Ingrese el estado del activo (Activo/Inactivo): ").strip()
-    plantilla_mac["User"] = input("Ingrese el nombre del usuario: ").strip()
+    #plantilla_mac["Status"] = input("Ingrese el estado del activo (Activo/Inactivo): ").strip()
+    #plantilla_mac["User"] = input("Ingrese el nombre del usuario: ").strip()
     plantilla_mac["Location"] = input("Ingrese la ubicación del activo: ").strip()
     
     # Generar el nombre del activo a partir del usuario
@@ -402,6 +473,9 @@ def agregar_a_excel_dell(asset_data):
 
 def agregar_a_excel_mac(asset_data):
     try:
+        if verificar_existencia_en_excel(asset_data["Serial Number"]):
+            print(f"El activo con serial '{asset_data['Serial Number']}' ya está registrado en el Excel. No se agregará.")
+            return
         df = pd.read_excel(ruta_excel)
         nuevo_registro = pd.DataFrame([asset_data])  # Convertir la plantilla a un DataFrame de una fila
         df = pd.concat([df, nuevo_registro], ignore_index=True)
@@ -421,11 +495,23 @@ def extraer_service_tag(qr_data):
         return match.group(1).strip()
     return None
 
+def extraer_serial_mac(qr_data):
+    match = re.search(r"Serial Number:\s*([A-Za-z0-9]+)", qr_data, re.IGNORECASE)
+    if match:
+        return match.group(1).strip()
+    
+    # Patrón alternativo para seriales de Mac que comienzan con 'C02' y tienen entre 10 y 12 caracteres
+    match_alt = re.search(r"\b(C02[A-Za-z0-9]{8,10})\b", qr_data)
+    if match_alt:
+        return match_alt.group(1).strip()
+
+    return None
+
 def manejar_qr_dell():
     qr_data = escanear_qr_con_celular()
     if qr_data:
         # Mejorar la detección para considerar patrones adicionales
-        if any(keyword in qr_data.lower() for keyword in ["dell", "service tag", "made in vietnam"]) or qr_data.startswith("CS"):
+        if any(keyword in qr_data.lower() for keyword in ["dell", "service tag", "made in vietnam", "Service tag", "Dell", "S/N", "(S/N)", "SN"]) or qr_data.startswith("CS") or len(qr_data) == 7:
             print("Laptop Dell detectada. Procesando datos...")
             
             if len(qr_data) > 7:  # Verificar si el QR escaneado contiene más información de la cuenta
@@ -436,10 +522,13 @@ def manejar_qr_dell():
             if service_tag:
                 print(f"Service Tag detectado: {service_tag}")
                 confirmacion = input("¿Es correcto este Service Tag, desea continuar? (sí/no): ").strip().lower()
-                if confirmacion not in ["sí", "si"]:
+                if confirmacion not in ["sí", "si", "Si", "Sí"]:
                     print("Operación cancelada por el usuario.")
                     return
                 else:
+                    if verificar_existencia_en_excel(service_tag):
+                        print(f"El activo con serial '{service_tag}' ya está registrado en el Excel. No se agregará.")
+                        return
                     asset_data = procesar_qr_dell(service_tag)
                     agregar_a_excel_dell(asset_data)
             else:
@@ -454,28 +543,189 @@ def manejar_qr_mac():
     if qr_data:
         if "MacBook" in qr_data or "Serial Number:" in qr_data or qr_data.startswith("C02") or 10<= len(qr_data) <= 12:  # Detectar si es Mac por patrones comunes
             print("Laptop MacBook detectada. Procesando datos...")
-            asset_data = procesar_qr_mac(qr_data)
-            agregar_a_excel_mac(asset_data)
+
+            if len(qr_data) > 12:
+                serial_number = extraer_serial_mac(qr_data)
+            else:
+                serial_number = qr_data
+
+            if serial_number:
+                print(f"Serial Number detectado: {serial_number}")
+                confirmacion = input("¿Es correcto este Service Tag, desea continuar? (sí/no): ").strip().lower()
+                if confirmacion not in ["sí", "si", "Si", "Sí"]:
+                    print("Operación cancelada por el usuario.")
+                    return
+                else:
+                    if verificar_existencia_en_excel(serial_number):
+                        print(f"El activo con serial '{serial_number}' ya está registrado en el Excel. No se agregará.")
+                        return
+                    asset_data = procesar_qr_mac(serial_number)
+                    agregar_a_excel_mac(asset_data)
         else:
             print("Código QR no corresponde a un equipo Mac.")
     else:
         print("No se detectó ningún código QR.")
 
-# Menú interactivo
+def manejar_qr_laptop():
+    while True:
+        qr_data = escanear_qr_con_celular()
+
+        if qr_data:
+            qr_data_lower = qr_data.lower()
+
+            # Detectar si es una laptop Dell
+            patrones_dell = ["dell", "service tag", "made in vietnam", "Service tag", "Dell", "S/N", "(S/N)", "SN"]
+            if any(keyword in qr_data_lower for keyword in patrones_dell) or qr_data.startswith("CS") or len(qr_data) == 7:
+                print("Laptop Dell detectada. Procesando datos...")
+
+                if len(qr_data) > 7:
+                    serial_number = extraer_service_tag(qr_data)
+                else:
+                    serial_number = qr_data  # Si el QR contiene solo el serial
+
+                if serial_number:
+                    print(f"Service Tag detectado: {serial_number}")
+                    confirmacion = input("¿Es correcto este Service Tag, desea continuar? (sí/no): ").strip().lower()
+                    if confirmacion in ["sí", "si", "Si", "Sí"]:
+                        if verificar_existencia_en_excel(serial_number):
+                            print(f"El activo con serial '{serial_number}' ya está registrado en el Excel. No se agregará.")
+                            return
+                        asset_data = procesar_qr_dell(serial_number)
+                        agregar_a_excel_dell(asset_data)
+                        break
+                    else:
+                        print("Reintentando escaneo...")
+                        continue
+                else:
+                    print("No se detectó un Service Tag válido. Reintentando...")
+                    continue
+
+            # Detectar si es una laptop MacBook
+            if any(keyword in qr_data_lower for keyword in ["macbook", "serial number"]) or qr_data.startswith("C02") or 10 <= len(qr_data) <= 12:
+                print("Laptop MacBook detectada. Procesando datos...")
+
+                if len(qr_data) > 12:
+                    serial_number = extraer_serial_mac(qr_data)
+                else:
+                    serial_number = qr_data
+
+                if serial_number:
+                    print(f"Serial Number detectado: {serial_number}")
+                    confirmacion = input("¿Es correcto este Serial Number, desea continuar? (sí/no): ").strip().lower()
+                    if confirmacion in ["sí", "si", "Si", "Sí"]:
+                        if verificar_existencia_en_excel(serial_number):
+                            print(f"El activo con serial '{serial_number}' ya está registrado en el Excel. No se agregará.")
+                            return
+                        asset_data = procesar_qr_mac(serial_number)
+                        agregar_a_excel_mac(asset_data)
+                        break
+                    else:
+                        print("Reintentando escaneo...")
+                        continue
+                else:
+                    print("No se detectó un Serial Number válido. Reintentando...")
+                    continue
+
+            print("Código QR no corresponde a un equipo Dell ni Mac. Reintentando...")
+        else:
+            print("No se detectó ningún código QR. Reintentando...")
+
+def entregar_laptop():
+    print("\n--- Entregar Laptop a Usuario ---")
+    metodo = input("¿Desea escanear el QR o ingresar el Service Tag manualmente? (escanear/manual): ").strip().lower()
+
+    if metodo == "escanear":
+        qr_data = escanear_qr_con_celular()
+        if any(keyword in qr_data.lower() for keyword in ["dell", "service tag", "made in vietnam", "s/n", "(s/n)", "sn"]) or qr_data.startswith("CS") or len(qr_data) == 7:
+            print("Laptop Dell detectada. Procesando datos...")
+            serial_number = extraer_service_tag(qr_data) if len(qr_data) > 7 else qr_data
+        elif any(keyword in qr_data.lower() for keyword in ["macbook", "serial number"]) or qr_data.startswith("C02") or 10 <= len(qr_data) <= 12:
+            print("Laptop MacBook detectada. Procesando datos...")
+            serial_number = extraer_serial_mac(qr_data) if len(qr_data) > 12 else qr_data
+        else:
+            print("Código QR no corresponde a un equipo Dell ni Mac.")
+            return
+    elif metodo == "manual":
+        serial_number = input("Ingrese el Service Tag del laptop: ").strip()
+    else:
+        print("Método no válido. Intente nuevamente.")
+        return
+
+    df = pd.read_excel(ruta_excel)
+    if df.empty:
+        print("El archivo Excel está vacío.")
+        return
+
+    filtro = df[df["Serial Number"].str.lower() == serial_number.lower()]
+
+    if filtro.empty:
+        print(f"No se encontró un laptop con el Service Tag '{serial_number}' en el archivo Excel.")
+        return
+
+    nuevo_usuario = input("Ingrese el nombre del usuario que recibirá el laptop: ").strip()
+
+    # Manejar valores NaN antes de actualizar el DataFrame
+    df["User"] = df["User"].fillna("")
+    df["Name"] = df["Name"].fillna("Unknown")
+
+    if "Dell" in filtro["Manufacturer"].values[0]:
+        name_laptop = f"{nuevo_usuario}-Latitude"
+    elif "Apple" in filtro["Manufacturer"].values[0]:
+        name_laptop = f"{nuevo_usuario}-MacBookPro"
+    else:
+        print("No se pudo determinar el fabricante del laptop.")
+        return
+
+    df.loc[df["Serial Number"].str.lower() == serial_number.lower(), "User"] = nuevo_usuario
+    df.loc[df["Serial Number"].str.lower() == serial_number.lower(), "Name"] = name_laptop
+
+    # Guardar los cambios en el Excel
+    df.to_excel(ruta_excel, index=False)
+    print(f"Laptop con Service Tag '{serial_number}' asignado a '{nuevo_usuario}' en el Excel.")
+
+    # Actualizar en GLPI
+    session_token = obtener_token_sesion()
+    if not session_token:
+       print("No se pudo obtener el token de sesión.")
+       return
+
+    #asset_id = obtener_detalles_asset(session_token, serial_number)
+    #if not asset_id:
+    #    print("No se pudo actualizar el activo en GLPI porque no se encontró.")
+    #    return
+
+    #asset_data = filtro.iloc[0].to_dict()
+    #asset_data["User"] = nuevo_usuario
+    #asset_data["Name"] = name_laptop  # Asegurar que el nombre esté presente
+
+    # Limpiar NaN antes de enviar a GLPI
+    #asset_data_clean = {key: value if pd.notna(value) else "" for key, value in asset_data.items()}
+
+    #if "Name" not in asset_data_clean or not asset_data_clean["Name"]:
+    #    print("Error: No se pudo determinar el nombre del laptop para el registro.")
+    #    return
+    #obtener_detalles_asset(session_token, asset_id)
+    #actualizar_asset(session_token, asset_id, asset_data_clean)
+
+# Agregar la opción en el menú principal
 def main():
     while True:
         print("\n--- Menú de opciones ---")
+        print("0. Escanear y registrar cualquier laptop (Dell/Mac), !Me siento con suerte!")
         print("1. Escanear QR y registrar en Excel (Template Default)")
         print("2. Escanear QR y registrar laptops Dell")
         print("3. Escanear QR y registrar laptops Mac")
         print("4. Registrar la última fila del Excel en GLPI")
         print("5. Registrar un activo por nombre")
         print("6. Registrar todos los activos de Excel en GLPI")
-        print("7. Salir")
+        print("7. Entregar laptop a un usuario")
+        print("8. Salir")
         
         opcion = input("Seleccione una opción: ").strip()
         
-        if opcion == "1":
+        if opcion == "0":
+            manejar_qr_laptop()
+        elif opcion == "1":
             codigo = escanear_qr_con_celular()
             if codigo:
                 asset_data = parse_qr_data(codigo)
@@ -491,11 +741,12 @@ def main():
         elif opcion == "6":
             procesar_archivo_excel(ruta_excel)
         elif opcion == "7":
+            entregar_laptop()
+        elif opcion == "8":
             print("Saliendo del programa...")
             break
         else:
             print("Opción no válida. Intente nuevamente.")
-
 
 if __name__ == "__main__":
     main()

@@ -1,0 +1,10 @@
+Asset Type: Computer
+Status: Stocked
+User: None
+Name: None-Latitude
+Computer Types: Laptop
+Location: Rack A
+Manufacturer: Dell inc.
+Model: Latitude
+Serial Number: CS08BY3
+Comments: Check
