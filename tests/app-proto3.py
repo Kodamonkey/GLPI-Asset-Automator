@@ -31,16 +31,6 @@ if not os.path.exists(ruta_excel):
     df = pd.DataFrame(columns=columnas_necesarias)
     df.to_excel(ruta_excel, index=False)
 
-# Ruta del archivo Excel
-ruta_excel_consumibles = "C:/Users/sebastian.salgado/Desktop/GLPI-Asset-Automator/consumibles.xlsx"
-
-# Crear archivo Excel si no existe
-if not os.path.exists(ruta_excel_consumibles):
-    columnas_necesarias = ["Name", "Inventory/Asset Number", "Location", "Stock Target"]
-    df = pd.DataFrame(columns=columnas_necesarias)
-    df.to_excel(ruta_excel_consumibles, index=False)
-
-
 def obtener_token_sesion():
     headers = {
         "Authorization": f"user_token {USER_TOKEN}",
@@ -90,12 +80,13 @@ def obtener_manufacturer_id(session_token, manufacturer_name):
 def limpiar_asset_data(asset_data):
     cleaned_data = {}
     for key, value in asset_data.items():
-        if isinstance(value, float) and np.isnan(value):
+        # Reemplazar NaN con una cadena vacía o un valor por defecto
+        if isinstance(value, (float, np.float64)) and np.isnan(value):
             cleaned_data[key] = ""
         elif value is None:
             cleaned_data[key] = ""
         else:
-            cleaned_data[key] = str(value).strip()
+            cleaned_data[key] = value
     return cleaned_data
 
 def verificar_existencia_asset(session_token, serial_number):
@@ -136,7 +127,6 @@ def registrar_asset(session_token, asset_data, asset_type):
 
     endpoint = {
         "Computer": "/Computer",
-        "Monitor": "/Monitor",
         "Network Equipment": "/NetworkEquipment",
         "Consumables": "/ConsumableItem",
     }.get(asset_type, "/Computer")
@@ -167,14 +157,12 @@ def registrar_ultima_fila():
     last_row = df.iloc[-1].to_dict()
     print(f"Última fila encontrada: {last_row}")
 
-    # Reemplazar NaN con valores vacíos
-    last_row = {key: ("" if pd.isna(value) else value) for key, value in last_row.items()}
-
     session_token = obtener_token_sesion()
     if not session_token:
         print("No se pudo obtener el token de sesión.")
         return
 
+    # Verificar si 'name' existe en la fila
     if "Name" not in last_row or "Asset Type" not in last_row:
         print("La última fila no contiene las columnas esperadas.")
         return
@@ -183,7 +171,6 @@ def registrar_ultima_fila():
     if not location_id:
         print(f"No se pudo encontrar la ubicación: {last_row['Location']}")
         return
-
     manufacturer_id = obtener_manufacturer_id(session_token, last_row["Manufacturer"])
     if not manufacturer_id:
         print(f"No se pudo encontrar el fabricante: {last_row['Manufacturer']}")
@@ -199,7 +186,8 @@ def registrar_ultima_fila():
         "locations_id": location_id,
         "manufacturers_id": manufacturer_id,
         "serial": last_row["Serial Number"].strip(),
-        "comments": last_row["Comments"].strip() if last_row["Comments"] else "N/A",
+        #"otherserial": last_row["Inventory Number"].strip(),
+        "comments": last_row["Comments"].strip(),
     }
 
     print(f"Registrando asset: {asset_data}")
@@ -849,425 +837,6 @@ def entregar_laptop():
 
     actualizar_asset_glpi(session_token, asset_id, asset_data)
 
-def procesar_qr_monitor(qr_data):
-    # Plantilla para monitores
-    plantilla_monitor = {
-        "Asset Type": "Monitor",
-        "Status": "Stocked",  # Definir un estado predeterminado
-        "User": None,  # Pedir al usuario
-        "Name": None,  # Generado automáticamente
-        "Location": None,  # Pedir al usuario
-        "Manufacturer": "Dell Inc.",  # Extraído del QR
-        "Model": None,  # Extraído del QR
-        "Serial Number": qr_data.strip(),  # Código QR escaneado
-        "Comments": "Check",
-    }
-
-    # Solicitar datos adicionales al usuario
-    plantilla_monitor["Location"] = input("Ingrese la ubicación del monitor: ").strip()
-    #plantilla_monitor["Manufacturer"] = input("Ingrese el fabricante del monitor: ").strip()
-    #plantilla_monitor["Model"] = input("Ingrese el modelo del monitor: ").strip()
-
-    # Generar el nombre del activo a partir del modelo
-    plantilla_monitor["Name"] = f"{plantilla_monitor['Model']}-{plantilla_monitor['Serial Number']}"
-
-    return plantilla_monitor
-
-def manejar_qr_monitor():
-    qr_data = escanear_qr_con_celular()
-    if qr_data:
-        if any(keyword in qr_data.lower() for keyword in ["monitor", "display", "serial number", "CN-", "SN", "S/N", "CN"]) or len(qr_data) == 7 or len(qr_data) > 12:
-            print("Monitor detectado. Procesando datos...")
-
-            serial_number = qr_data.strip()
-
-            if serial_number:
-                print(f"Serial Number detectado: {serial_number}")
-                confirmacion = input("¿Es correcto este Serial Number, desea continuar? (sí/no): ").strip().lower()
-                if confirmacion not in ["sí", "si"]:
-                    print("Operación cancelada por el usuario.")
-                    return
-                else:
-                    if verificar_existencia_en_excel(serial_number):
-                        print(f"El activo con serial '{serial_number}' ya está registrado en el Excel. No se agregará.")
-                        return
-                    asset_data = procesar_qr_monitor(serial_number)
-                    agregar_a_excel(asset_data)
-        else:
-            print("Código QR no corresponde a un monitor.")
-    else:
-        print("No se detectó ningún código QR.")
-
-def actualizar_asset_glpi_monitor(session_token, asset_id, asset_data):
-    headers = {
-        "Content-Type": "application/json",
-        "Session-Token": session_token,
-        "App-Token": APP_TOKEN
-    }
-
-    # Obtener el ID del usuario basado en su nombre
-    user_id = obtener_user_id(session_token, asset_data["User"])
-    print(f"ID del usuario encontrado: {user_id}")
-    if not user_id:
-        print(f"Error: No se encontró el usuario '{asset_data['User']}' en GLPI.")
-        return
-
-    # Determinar el nuevo nombre del monitor
-    if "Dell" in asset_data["Manufacturer"]:
-        new_name = f"{asset_data['User']}-DellMonitor"
-    elif "Samsung" in asset_data["Manufacturer"]:
-        new_name = f"{asset_data['User']}-SamsungMonitor"
-    else:
-        new_name = f"{asset_data['User']}-Monitor"
-
-    # Preparar datos para la actualización en GLPI
-    payload = {
-        "input": {
-            "id": asset_id,  
-            "name": new_name,
-            "users_id": user_id
-        }
-    }
-
-    response = requests.put(f"{GLPI_URL}/Monitor/{asset_id}", headers=headers, json=payload, verify=False)
-
-    if response.status_code == 200:
-        print(f"Monitor con ID {asset_id} actualizado correctamente en GLPI con el nombre '{new_name}'.")
-    else:
-        print(f"Error al actualizar el monitor en GLPI: {response.status_code}")
-        try:
-            print(response.json())
-        except json.JSONDecodeError:
-            print(response.text)
-
-def obtener_id_por_nombre_monitor(session_token, asset_name):
-    headers = {
-        "Content-Type": "application/json",
-        "Session-Token": session_token,
-        "App-Token": APP_TOKEN
-    }
-
-    params = {
-        "searchText": asset_name.strip().lower(),
-        "range": "0-999"
-    }
-
-    response = requests.get(f"{GLPI_URL}/Monitor", headers=headers, params=params, verify=False)
-
-    if response.status_code == 200:
-        for asset in response.json():
-            if asset.get("name").strip().lower() == asset_name.strip().lower():
-                print(f"Monitor encontrado: {asset_name}, ID: {asset.get('id')}")
-                return asset.get("id")
-
-        print(f"No se encontró el ID para el monitor '{asset_name}' en GLPI.")
-        return None
-    else:
-        print(f"Error al buscar el ID del monitor: {response.status_code}")
-        return None
-
-def obtener_asset_id_por_serial_monitor(session_token, serial_number):
-    headers = {
-        "Content-Type": "application/json",
-        "Session-Token": session_token,
-        "App-Token": APP_TOKEN
-    }
-
-    params = {
-        "searchText": serial_number.strip().lower(),
-        "range": "0-999"
-    }
-
-    response = requests.get(f"{GLPI_URL}/search/Monitor", headers=headers, params=params, verify=False)
-
-    if response.status_code == 200:
-        assets = response.json().get("data", [])
-        
-        for asset in assets:
-            serial_found = (asset.get("5") or "").strip().lower()  # Clave 5 es el serial number
-            asset_name = asset.get("1")  # Clave 1 es el nombre del asset
-            
-            if serial_found == serial_number.lower():
-                print(f"Monitor encontrado: {asset_name}, Serial: {serial_number}")
-                return obtener_id_por_nombre_monitor(session_token, asset_name)
-
-        print(f"No se encontró un monitor con el número de serie '{serial_number}' en GLPI.")
-        return None
-    else:
-        print(f"Error al buscar el monitor en GLPI: {response.status_code}")
-        return None
-
-def entregar_monitor():
-    print("\n--- Entregar Monitor a Usuario ---")
-    metodo = input("¿Desea escanear el QR o ingresar el número de serie manualmente? (escanear/manual): ").strip().lower()
-
-    if metodo == "escanear":
-        qr_data = escanear_qr_con_celular()
-        if any(keyword in qr_data.lower() for keyword in ["monitor", "serial number", "sn", "cn"]) or len(qr_data) >= 7:
-            print("Monitor detectado. Procesando datos...")
-            serial_number = qr_data.strip()
-        else:
-            print("Código QR no corresponde a un monitor válido.")
-            return
-    elif metodo == "manual":
-        serial_number = input("Ingrese el número de serie del monitor: ").strip()
-    else:
-        print("Método no válido. Intente nuevamente.")
-        return
-
-    df = pd.read_excel(ruta_excel)
-    if df.empty:
-        print("El archivo Excel está vacío.")
-        return
-
-    filtro = df[df["Serial Number"].str.lower() == serial_number.lower()]
-
-    if filtro.empty:
-        print(f"No se encontró un monitor con el número de serie '{serial_number}' en el archivo Excel.")
-        return
-
-    nuevo_usuario = input("Ingrese el nombre del usuario que recibirá el monitor: ").strip()
-
-    # Manejar valores NaN antes de actualizar el DataFrame
-    df["User"] = df["User"].fillna("")
-    df["Name"] = df["Name"].fillna("Unknown")
-
-    # Determinar el nuevo nombre del monitor en base al usuario
-    fabricante = filtro["Manufacturer"].values[0]
-    if "Dell" in fabricante:
-        new_name = f"{nuevo_usuario}-DellMonitor"
-    elif "Samsung" in fabricante:
-        new_name = f"{nuevo_usuario}-SamsungMonitor"
-    else:
-        new_name = f"{nuevo_usuario}-Monitor"
-
-    df.loc[df["Serial Number"].str.lower() == serial_number.lower(), "User"] = nuevo_usuario
-    df.loc[df["Serial Number"].str.lower() == serial_number.lower(), "Name"] = new_name
-
-    df.to_excel(ruta_excel, index=False)
-    print(f"Monitor con número de serie '{serial_number}' asignado a '{nuevo_usuario}' en el Excel.")
-
-    # Actualizar en GLPI
-    session_token = obtener_token_sesion()
-    if not session_token:
-        print("No se pudo obtener el token de sesión.")
-        return
-
-    asset_id = obtener_asset_id_por_serial_monitor(session_token, serial_number)
-    if not asset_id:
-        print("No se pudo encontrar el activo en GLPI.")
-        return
-
-    asset_data = filtro.iloc[0].to_dict()
-    asset_data["User"] = nuevo_usuario
-    asset_data["Name"] = new_name  
-
-    actualizar_asset_glpi_monitor(session_token, asset_id, asset_data)
-
-def agregar_consumible():
-    print("\n--- Agregar Consumible al Stock ---")
-    
-    nombre_consumible = input("Ingrese el nombre del consumible: ").strip()
-    inventory_number = input("Ingrese el número de inventario o activo: ").strip()
-    location = input("Ingrese la ubicación del consumible: ").strip()
-    cantidad = int(input("Ingrese la cantidad a agregar al stock: "))
-
-    session_token = obtener_token_sesion()
-    if not session_token:
-        print("No se pudo obtener el token de sesión.")
-        return
-
-    consumible_id = obtener_id_consumible(session_token, nombre_consumible, inventory_number)
-
-    # Si el consumible no existe, se crea uno nuevo
-    if not consumible_id:
-        print(f"No se encontró el consumible '{nombre_consumible}' en GLPI. Creando uno nuevo...")
-        consumible_id = crear_consumible(session_token, nombre_consumible, inventory_number, location, cantidad)
-        if not consumible_id:
-            print("Error al crear el consumible en GLPI.")
-            return
-
-    stock_actual = obtener_stock_actual(session_token, consumible_id)
-    nuevo_stock = stock_actual + cantidad
-
-    actualizar_stock_glpi(session_token, consumible_id, nuevo_stock)
-    print(f"Consumible '{nombre_consumible}' actualizado a {nuevo_stock} unidades en stock.")
-
-    # Registrar en Excel
-    actualizar_excel_consumible(nombre_consumible, inventory_number, location, nuevo_stock)
-
-def quitar_consumible():
-    print("\n--- Quitar Consumible del Stock ---")
-
-    nombre_consumible = input("Ingrese el nombre del consumible: ").strip()
-
-    df = pd.read_excel(ruta_excel_consumibles)
-
-    # Buscar el consumible en el Excel por nombre
-    filtro = df[df["Name"].str.lower() == nombre_consumible.lower()]
-
-    if filtro.empty:
-        print(f"No se encontró el consumible '{nombre_consumible}' en el archivo Excel.")
-        return
-
-    # Obtener datos existentes del consumible
-    inventory_number = filtro.iloc[0]["Inventory/Asset Number"]
-    location = filtro.iloc[0]["Location"]
-    stock_actual = int(filtro.iloc[0]["Stock Target"])
-
-    cantidad = int(input(f"Ingrese la cantidad a retirar (Stock actual: {stock_actual}): "))
-
-    if stock_actual < cantidad:
-        print("No se puede retirar más cantidad de la que hay en stock.")
-        return
-
-    nuevo_stock = stock_actual - cantidad
-
-    session_token = obtener_token_sesion()
-    if not session_token:
-        print("No se pudo obtener el token de sesión.")
-        return
-
-    consumible_id = obtener_id_consumible(session_token, nombre_consumible, inventory_number)
-    if not consumible_id:
-        print(f"No se encontró el consumible '{nombre_consumible}' en GLPI.")
-        return
-
-    actualizar_stock_glpi(session_token, consumible_id, nuevo_stock)
-    print(f"Consumible '{nombre_consumible}' actualizado a {nuevo_stock} unidades en stock.")
-
-    # Actualizar en Excel
-    actualizar_excel_consumible(nombre_consumible, inventory_number, location, nuevo_stock)
-
-def actualizar_excel_consumible(nombre, inventory_number, location, stock):
-    df = pd.read_excel(ruta_excel_consumibles)
-    df.columns = df.columns.str.strip()  # Asegura nombres sin espacios extra
-
-    # Convertir inventory_number a string para evitar errores
-    inventory_number_str = str(inventory_number).strip().lower()
-
-    # Verificar si el consumible ya está registrado
-    filtro = df[
-        (df["Name"].str.lower() == nombre.lower()) & 
-        (df["Inventory/Asset Number"].astype(str).str.lower() == inventory_number_str)
-    ]
-
-    if not filtro.empty:
-        df.loc[
-            (df["Name"].str.lower() == nombre.lower()) &
-            (df["Inventory/Asset Number"].astype(str).str.lower() == inventory_number_str), 
-            "Stock Target"
-        ] = stock
-    else:
-        nuevo_consumible = pd.DataFrame([{
-            "Name": nombre,
-            "Inventory/Asset Number": inventory_number_str,  # Convertir a string
-            "Location": location,
-            "Stock Target": stock
-        }])
-        df = pd.concat([df, nuevo_consumible], ignore_index=True)
-
-    df.to_excel(ruta_excel_consumibles, index=False)
-    print(f"El consumible '{nombre}' ha sido registrado/actualizado en el Excel.")
-
-def crear_consumible(session_token, nombre, inventory_number, location, stock_target):
-    headers = {
-        "Content-Type": "application/json",
-        "Session-Token": session_token,
-        "App-Token": APP_TOKEN
-    }
-
-    payload = {
-        "input": {
-            "name": nombre,
-            "otherserial": inventory_number,
-            "locations_id": obtener_location_id(session_token, location),
-            "stock_target": stock_target
-        }
-    }
-
-    response = requests.post(f"{GLPI_URL}/ConsumableItem", headers=headers, json=payload, verify=False)
-
-    if response.status_code == 201:
-        consumible_id = response.json().get("id")
-        print(f"Consumible '{nombre}' creado exitosamente con ID {consumible_id}.")
-        return consumible_id
-    else:
-        print(f"Error al crear el consumible: {response.status_code}")
-        try:
-            print(response.json())
-        except json.JSONDecodeError:
-            print(response.text)
-        return None
-
-def obtener_id_consumible(session_token, nombre_consumible, inventory_number):
-    headers = {
-        "Content-Type": "application/json",
-        "Session-Token": session_token,
-        "App-Token": APP_TOKEN
-    }
-
-    params = {
-        "searchText": nombre_consumible.strip().lower(),
-        "range": "0-999"
-    }
-
-    response = requests.get(f"{GLPI_URL}/ConsumableItem", headers=headers, params=params, verify=False)
-    
-    if response.status_code == 200:
-        consumibles = response.json()
-        for consumible in consumibles:
-            # Convertir a cadena de texto y limpiar espacios en blanco
-            consumible_name = str(consumible.get("name", "")).strip().lower()
-            consumible_serial = str(consumible.get("otherserial", "")).strip().lower()
-            inventory_number_str = str(inventory_number).strip().lower()
-
-            if consumible_name == nombre_consumible.strip().lower() and consumible_serial == inventory_number_str:
-                return consumible["id"]
-
-    print(f"No se encontró el consumible con nombre '{nombre_consumible}' y número de inventario '{inventory_number}' en GLPI.")
-    return None
-
-def obtener_stock_actual(session_token, consumible_id):
-    headers = {
-        "Content-Type": "application/json",
-        "Session-Token": session_token,
-        "App-Token": APP_TOKEN
-    }
-
-    response = requests.get(f"{GLPI_URL}/ConsumableItem/{consumible_id}", headers=headers, verify=False)
-
-    if response.status_code == 200:
-        return int(response.json().get("stock_target", 0))
-    else:
-        print(f"Error al obtener el stock del consumible ID {consumible_id}: {response.status_code}")
-        return 0
-
-def actualizar_stock_glpi(session_token, consumible_id, nuevo_stock):
-    headers = {
-        "Content-Type": "application/json",
-        "Session-Token": session_token,
-        "App-Token": APP_TOKEN
-    }
-
-    payload = {
-        "input": {
-            "id": consumible_id,
-            "stock_target": nuevo_stock
-        }
-    }
-
-    response = requests.put(f"{GLPI_URL}/ConsumableItem/{consumible_id}", headers=headers, json=payload, verify=False)
-
-    if response.status_code == 200:
-        print(f"Stock del consumible ID {consumible_id} actualizado correctamente a {nuevo_stock}.")
-    else:
-        print(f"Error al actualizar el stock en GLPI: {response.status_code}")
-        try:
-            print(response.json())
-        except json.JSONDecodeError:
-            print(response.text)
-
 # Agregar la opción en el menú principal
 def main():
     while True:
@@ -1283,20 +852,18 @@ def main():
 
         print("\n----- Monitores -----")
 
-        print("5. Escanear QR y registrar monitores")
-        print("6. Entregar monitor a un usuario")
+        print("4.1. Escanear QR y registrar monitores")
+        print("4.2. Entregar monitor a un usuario")
 
         print("\n----- Consumibles -----")
-        print ("6.1. Agregar consumible")
-        print ("6.2. Quitar consumible")
 
         print("\n----- Network equipment -----")
 
-        print("\n----- Excel -----")
-        print("7. Registrar la última fila del Excel en GLPI")
-        print("8. Registrar un activo por nombre")
-        print("9. Registrar todos los activos de Excel en GLPI")
-        print("10. Salir")
+
+        print("5. Registrar la última fila del Excel en GLPI")
+        print("6. Registrar un activo por nombre")
+        print("7. Registrar todos los activos de Excel en GLPI")
+        print("8. Salir")
         
         opcion = input("Seleccione una opción: ").strip()
         
@@ -1313,21 +880,15 @@ def main():
             manejar_qr_mac()
         elif opcion == "4":
             entregar_laptop()
-        elif opcion == "5":
+        elif opcion == "4.1":
             manejar_qr_monitor()
-        elif opcion == "6":
-            entregar_monitor()
-        elif opcion == "6.1":
-            agregar_consumible()
-        elif opcion == "6.2":
-            quitar_consumible()
-        elif opcion == "7":
+        elif opcion == "5":
             registrar_ultima_fila()
-        elif opcion == "8":
+        elif opcion == "6":
             registrar_por_nombre()
-        elif opcion == "9":
+        elif opcion == "7":
             procesar_archivo_excel(ruta_excel)
-        elif opcion == "10":
+        elif opcion == "8":
             print("Saliendo del programa...")
             break
         else:

@@ -1,0 +1,9 @@
+Asset Type: Monitor
+Status: Stocked
+User: None
+Name: None-CN0PVJVW742615AU0FFS
+Location: Rack A
+Manufacturer: Dell Inc.
+Model: None
+Serial Number: CN0PVJVW742615AU0FFS
+Comments: Check
