@@ -1066,10 +1066,35 @@ def entregar_monitor():
 
 def agregar_consumible():
     print("\n--- Agregar Consumible al Stock ---")
-    
-    nombre_consumible = input("Ingrese el nombre del consumible: ").strip()
-    inventory_number = input("Ingrese el número de inventario o activo: ").strip()
-    location = input("Ingrese la ubicación del consumible: ").strip()
+
+    metodo = input("¿Desea escanear el QR o ingresar manualmente? (qr/manual): ").strip().lower()
+
+    if metodo == "qr":
+        qr_data = escanear_qr_con_celular()
+        if qr_data:
+            inventory_number = qr_data.strip()
+            print(f"Inventory Number detectado: {inventory_number}")
+        else:
+            print("No se detectó ningún código QR.")
+            return
+    else:
+        inventory_number = input("Ingrese el número de inventario o activo: ").strip()
+
+    df = pd.read_excel(ruta_excel_consumibles)
+    df.columns = df.columns.str.strip()  # Asegura que no haya espacios en los nombres de columnas
+
+    # Verificar si el consumible ya está registrado en el Excel
+    filtro = df[df["Inventory/Asset Number"].astype(str).str.lower() == inventory_number.lower()]
+
+    if not filtro.empty:
+        print(f"Consumible con Inventory Number '{inventory_number}' encontrado en el Excel.")
+        nombre_consumible = filtro.iloc[0]["Name"]
+        location = filtro.iloc[0]["Location"]
+    else:
+        print(f"No se encontró un consumible con el número de inventario '{inventory_number}'. Creando nuevo...")
+        nombre_consumible = input("Ingrese el nombre del nuevo consumible: ").strip()
+        location = input("Ingrese la ubicación del consumible: ").strip()
+
     cantidad = int(input("Ingrese la cantidad a agregar al stock: "))
 
     session_token = obtener_token_sesion()
@@ -1077,9 +1102,9 @@ def agregar_consumible():
         print("No se pudo obtener el token de sesión.")
         return
 
+    # Corrección: Se pasa tanto el nombre como el inventory_number a la función
     consumible_id = obtener_id_consumible(session_token, nombre_consumible, inventory_number)
-
-    # Si el consumible no existe, se crea uno nuevo
+    
     if not consumible_id:
         print(f"No se encontró el consumible '{nombre_consumible}' en GLPI. Creando uno nuevo...")
         consumible_id = crear_consumible(session_token, nombre_consumible, inventory_number, location, cantidad)
@@ -1099,19 +1124,31 @@ def agregar_consumible():
 def quitar_consumible():
     print("\n--- Quitar Consumible del Stock ---")
 
-    nombre_consumible = input("Ingrese el nombre del consumible: ").strip()
+    metodo = input("¿Desea escanear el QR o ingresar manualmente? (qr/manual): ").strip().lower()
+
+    if metodo == "qr":
+        qr_data = escanear_qr_con_celular()
+        if qr_data:
+            inventory_number = qr_data.strip()
+            print(f"Inventory Number detectado: {inventory_number}")
+        else:
+            print("No se detectó ningún código QR.")
+            return
+    else:
+        inventory_number = input("Ingrese el número de inventario o activo: ").strip()
 
     df = pd.read_excel(ruta_excel_consumibles)
+    df.columns = df.columns.str.strip()  # Asegurar que no haya espacios en los nombres de columnas
 
-    # Buscar el consumible en el Excel por nombre
-    filtro = df[df["Name"].str.lower() == nombre_consumible.lower()]
+    # Buscar el consumible en el Excel por inventory_number
+    filtro = df[df["Inventory/Asset Number"].astype(str).str.lower() == inventory_number.lower()]
 
     if filtro.empty:
-        print(f"No se encontró el consumible '{nombre_consumible}' en el archivo Excel.")
+        print(f"No se encontró el consumible con Inventory Number '{inventory_number}' en el archivo Excel.")
         return
 
     # Obtener datos existentes del consumible
-    inventory_number = filtro.iloc[0]["Inventory/Asset Number"]
+    nombre_consumible = filtro.iloc[0]["Name"]
     location = filtro.iloc[0]["Location"]
     stock_actual = int(filtro.iloc[0]["Stock Target"])
 
