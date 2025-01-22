@@ -24,9 +24,12 @@ Contraseña: glpi
 
 - /tests: Legacy code, que almacena versiones o funcionalidad anteriores
 - /image: imagenes varias
-- /others: Archivos auxiliares
+- /Templates: Archivos de texto para generar el qr de ALMA GLPI
 - root/:
   - app.py: ejecuta el codigo principal
   - .env.example: se utilizan variables de entornos para realizar el procedimiento, y este es un ejemplo de que se debe llenar
   - docker-compose.yml: Levanta todos los servicios necesarios para poder utilizar GLPI de forma local
   - Excel-tests.xlsx: Archivo excel que contiene la estructura escencial de los qr's
+
+
+# Funcionamiento del codigo

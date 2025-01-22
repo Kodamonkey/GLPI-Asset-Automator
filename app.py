@@ -630,6 +630,142 @@ def manejar_qr_laptop():
         else:
             print("No se detectó ningún código QR. Reintentando...")
 
+def obtener_user_id(session_token, username):
+    headers = {
+        "Content-Type": "application/json",
+        "Session-Token": session_token,
+        "App-Token": APP_TOKEN
+    }
+
+    params = {"searchText": username.strip().lower(), "range": "0-999"}
+    response = requests.get(f"{GLPI_URL}/search/User", headers=headers, params=params, verify=False)
+
+    if response.status_code == 200:
+        users = response.json().get("data", [])
+
+        for user in users:
+            # Manejar valores None de forma segura
+            first_name = (user.get('9') or '').strip()
+            last_name = (user.get('34') or '').strip()
+            username_glpi = (user.get("1") or '').strip()
+            
+            # Construir el nombre completo
+            nombre_completo = f"{first_name} {last_name}".strip()
+
+            # Comparar el nombre normalizado
+            if nombre_completo.lower() == username.strip().lower() or username_glpi.lower() == username.strip().lower():
+                print(f"Usuario encontrado: {nombre_completo}, ID: {user.get('1')}")
+                return user.get("1")  # Asegúrate de que '1' es el ID correcto en tu sistema GLPI
+
+        print(f"No se encontró el usuario '{username}' en GLPI.")
+        return None
+    else:
+        print(f"Error al buscar el usuario en GLPI: {response.status_code}")
+        return None
+
+def actualizar_asset_glpi(session_token, asset_id, asset_data):
+    headers = {
+        "Content-Type": "application/json",
+        "Session-Token": session_token,
+        "App-Token": APP_TOKEN
+    }
+
+    # Obtener el ID del usuario basado en su nombre
+    user_id = obtener_user_id(session_token, asset_data["User"])
+    print(f"ID del usuario encontrado: {user_id}")
+    if not user_id:
+        print(f"Error: No se encontró el usuario '{asset_data['User']}' en GLPI.")
+        return
+
+    # Determinar el nuevo nombre según el fabricante
+    if "Dell" in asset_data["Manufacturer"]:
+        new_name = f"{asset_data['User']}-Latitude"
+    elif "Apple" in asset_data["Manufacturer"]:
+        new_name = f"{asset_data['User']}-MacBookPro"
+    else:
+        print("No se pudo determinar el fabricante del laptop.")
+        return
+
+    # Preparar datos para la actualización en GLPI
+    payload = {
+        "input": {
+            "id": asset_id,  
+            "name": new_name,
+            #"users_id": user_id
+        }
+    }
+
+    response = requests.put(f"{GLPI_URL}/Computer/{asset_id}", headers=headers, json=payload, verify=False)
+
+    if response.status_code == 200:
+        print(f"Activo con ID {asset_id} actualizado correctamente en GLPI con el nombre '{new_name}'.")
+    else:
+        print(f"Error al actualizar el activo en GLPI: {response.status_code}")
+        try:
+            print(response.json())
+        except json.JSONDecodeError:
+            print(response.text)
+
+def obtener_asset_id_por_serial(session_token, serial_number):
+    headers = {
+        "Content-Type": "application/json",
+        "Session-Token": session_token,
+        "App-Token": APP_TOKEN
+    }
+
+    params = {
+        "searchText": serial_number.strip().lower(),
+        "range": "0-999"
+    }
+
+    # Buscar el asset por número de serie
+    response = requests.get(f"{GLPI_URL}/search/Computer", headers=headers, params=params, verify=False)
+
+    if response.status_code == 200:
+        assets = response.json().get("data", [])
+        
+        for asset in assets:
+            serial_found = (asset.get("5") or "").strip().lower()  # Clave 5 es el serial number
+            asset_name = asset.get("1")  # Clave 1 es el nombre del asset
+            
+            if serial_found == serial_number.lower():
+                print(f"Activo encontrado: {asset_name}, Serial: {serial_number}")
+                # Ahora buscamos el ID utilizando el nombre del activo encontrado
+                return obtener_id_por_nombre(session_token, asset_name)
+
+        print(f"No se encontró un activo con el serial number '{serial_number}' en GLPI.")
+        return None
+    else:
+        print(f"Error al buscar el activo en GLPI: {response.status_code}")
+        return None
+
+def obtener_id_por_nombre(session_token, asset_name):
+    headers = {
+        "Content-Type": "application/json",
+        "Session-Token": session_token,
+        "App-Token": APP_TOKEN
+    }
+
+    params = {
+        "searchText": asset_name.strip().lower(),
+        "range": "0-999"
+    }
+
+    # Buscar el asset por nombre
+    response = requests.get(f"{GLPI_URL}/Computer", headers=headers, params=params, verify=False)
+
+    if response.status_code == 200:
+        for asset in response.json():
+            if asset.get("name").strip().lower() == asset_name.strip().lower():
+                print(f"Activo encontrado: {asset_name}, ID: {asset.get('id')}")
+                return asset.get("id")
+
+        print(f"No se encontró el ID para el activo '{asset_name}' en GLPI.")
+        return None
+    else:
+        print(f"Error al buscar el ID del activo: {response.status_code}")
+        return None
+
 def entregar_laptop():
     print("\n--- Entregar Laptop a Usuario ---")
     metodo = input("¿Desea escanear el QR o ingresar el Service Tag manualmente? (escanear/manual): ").strip().lower()
@@ -668,57 +804,66 @@ def entregar_laptop():
     df["User"] = df["User"].fillna("")
     df["Name"] = df["Name"].fillna("Unknown")
 
-    if "Dell" in filtro["Manufacturer"].values[0]:
-        name_laptop = f"{nuevo_usuario}-Latitude"
-    elif "Apple" in filtro["Manufacturer"].values[0]:
-        name_laptop = f"{nuevo_usuario}-MacBookPro"
+    # Determinar el nuevo nombre del laptop en base al fabricante
+    fabricante = filtro["Manufacturer"].values[0]
+    if "Dell" in fabricante:
+        new_name = f"{nuevo_usuario}-Latitude"
+    elif "Apple" in fabricante:
+        new_name = f"{nuevo_usuario}-MacBookPro"
     else:
         print("No se pudo determinar el fabricante del laptop.")
         return
 
     df.loc[df["Serial Number"].str.lower() == serial_number.lower(), "User"] = nuevo_usuario
-    df.loc[df["Serial Number"].str.lower() == serial_number.lower(), "Name"] = name_laptop
+    df.loc[df["Serial Number"].str.lower() == serial_number.lower(), "Name"] = new_name
 
-    # Guardar los cambios en el Excel
     df.to_excel(ruta_excel, index=False)
     print(f"Laptop con Service Tag '{serial_number}' asignado a '{nuevo_usuario}' en el Excel.")
 
     # Actualizar en GLPI
     session_token = obtener_token_sesion()
     if not session_token:
-       print("No se pudo obtener el token de sesión.")
-       return
+        print("No se pudo obtener el token de sesión.")
+        return
 
-    #asset_id = obtener_detalles_asset(session_token, serial_number)
-    #if not asset_id:
-    #    print("No se pudo actualizar el activo en GLPI porque no se encontró.")
-    #    return
+    asset_id = obtener_asset_id_por_serial(session_token, serial_number)
+    if not asset_id:
+        print("No se pudo encontrar el activo en GLPI.")
+        return
 
-    #asset_data = filtro.iloc[0].to_dict()
-    #asset_data["User"] = nuevo_usuario
-    #asset_data["Name"] = name_laptop  # Asegurar que el nombre esté presente
+    asset_data = filtro.iloc[0].to_dict()
+    asset_data["User"] = nuevo_usuario
+    asset_data["Name"] = new_name  
 
-    # Limpiar NaN antes de enviar a GLPI
-    #asset_data_clean = {key: value if pd.notna(value) else "" for key, value in asset_data.items()}
+    actualizar_asset_glpi(session_token, asset_id, asset_data)
 
-    #if "Name" not in asset_data_clean or not asset_data_clean["Name"]:
-    #    print("Error: No se pudo determinar el nombre del laptop para el registro.")
-    #    return
-    #obtener_detalles_asset(session_token, asset_id)
-    #actualizar_asset(session_token, asset_id, asset_data_clean)
 
 # Agregar la opción en el menú principal
 def main():
     while True:
         print("\n--- Menú de opciones ---")
-        print("0. Escanear y registrar cualquier laptop (Dell/Mac), !Me siento con suerte!")
+        print("Seleccione una opción:")
+        
+        print("\n----- Laptops -----")
+        print("0. Escanear QR y registrar cualquier laptop (Dell/Mac), !Me siento con suerte!")
         print("1. Escanear QR y registrar en Excel (Template Default)")
         print("2. Escanear QR y registrar laptops Dell")
         print("3. Escanear QR y registrar laptops Mac")
-        print("4. Registrar la última fila del Excel en GLPI")
-        print("5. Registrar un activo por nombre")
-        print("6. Registrar todos los activos de Excel en GLPI")
-        print("7. Entregar laptop a un usuario")
+        print("4. Entregar laptop a un usuario")
+
+        print("\n----- Monitores -----")
+
+        print("4.1. Escanear QR y registrar monitores")
+        print("4.2. Entregar monitor a un usuario")
+
+        print("\n----- Consumibles -----")
+
+        print("\n----- Network equipment -----")
+
+
+        print("5. Registrar la última fila del Excel en GLPI")
+        print("6. Registrar un activo por nombre")
+        print("7. Registrar todos los activos de Excel en GLPI")
         print("8. Salir")
         
         opcion = input("Seleccione una opción: ").strip()
@@ -735,18 +880,21 @@ def main():
         elif opcion == "3":
             manejar_qr_mac()
         elif opcion == "4":
-            registrar_ultima_fila()
-        elif opcion == "5":
-            registrar_por_nombre()
-        elif opcion == "6":
-            procesar_archivo_excel(ruta_excel)
-        elif opcion == "7":
             entregar_laptop()
+        elif opcion == "4.1":
+            manejar_qr_monitor()
+        elif opcion == "5":
+            registrar_ultima_fila()
+        elif opcion == "6":
+            registrar_por_nombre()
+        elif opcion == "7":
+            procesar_archivo_excel(ruta_excel)
         elif opcion == "8":
             print("Saliendo del programa...")
             break
         else:
             print("Opción no válida. Intente nuevamente.")
+
 
 if __name__ == "__main__":
     main()
