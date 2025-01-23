@@ -1,3 +1,5 @@
+import tkinter as tk
+from tkinter import messagebox, simpledialog
 import pandas as pd
 import cv2  # Para la captura de QR
 from pyzbar.pyzbar import decode  # Decodificar QR
@@ -50,7 +52,7 @@ def obtener_token_sesion():
     if response.status_code == 200:
         return response.json().get("session_token")
     else:
-        print(f"Error al iniciar sesión: {response.status_code}")
+        messagebox.showerror("Error", f"Error al iniciar sesión: {response.status_code}")
         return None
 
 def obtener_location_id(session_token, location_name):
@@ -112,20 +114,20 @@ def verificar_existencia_asset(session_token, serial_number):
         assets = response.json().get("data", [])
         for asset in assets:
             if asset.get('5', '').strip() == serial_number:
-                print(f"El activo con número de serie '{serial_number}' ya existe en GLPI con ID: {asset.get('1')}")
+                messagebox.showinfo("Información", f"El activo con número de serie '{serial_number}' ya existe en GLPI con ID: {asset.get('1')}")
                 return True
     else:
-        print(f"Error al verificar existencia del activo: {response.status_code}")
+        messagebox.showerror("Error", f"Error al verificar existencia del activo: {response.status_code}")
         try:
-            print(response.json())
+            messagebox.showerror("Error", response.json())
         except json.JSONDecodeError:
-            print(response.text)
+            messagebox.showerror("Error", response.text)
     
     return False
 
 def registrar_asset(session_token, asset_data, asset_type):
     if verificar_existencia_asset(session_token, asset_data["serial"]):
-        print(f"El activo con número de serie {asset_data['serial']} ya existe en GLPI. No se realizará el registro.")
+        messagebox.showinfo("Información", f"El activo con número de serie {asset_data['serial']} ya existe en GLPI. No se realizará el registro.")
         return
 
     headers = {
@@ -150,47 +152,47 @@ def registrar_asset(session_token, asset_data, asset_type):
     response = requests.post(f"{GLPI_URL}{endpoint}", headers=headers, data=json.dumps(asset_data_array), verify=False)
     
     if response.status_code == 201:
-        print(f"Asset registrado exitosamente: {asset_data_clean['name']}")
+        messagebox.showinfo("Éxito", f"Asset registrado exitosamente: {asset_data_clean['name']}")
     else:
-        print(f"Error al registrar asset: {response.status_code}")
+        messagebox.showerror("Error", f"Error al registrar asset: {response.status_code}")
         try:
-            print(response.json())
+            messagebox.showerror("Error", response.json())
         except json.JSONDecodeError:
-            print(response.text)
+            messagebox.showerror("Error", response.text)
 
 def registrar_ultima_fila():
     df = pd.read_excel(ruta_excel)
     if df.empty:
-        print("El archivo Excel está vacío.")
+        messagebox.showerror("Error", "El archivo Excel está vacío.")
         return
 
     last_row = df.iloc[-1].to_dict()
-    print(f"Última fila encontrada: {last_row}")
+    #messagebox.showinfo("Información", f"Última fila encontrada: {last_row}")
 
     # Reemplazar NaN con valores vacíos
     last_row = {key: ("" if pd.isna(value) else value) for key, value in last_row.items()}
 
     session_token = obtener_token_sesion()
     if not session_token:
-        print("No se pudo obtener el token de sesión.")
+        messagebox.showerror("Error", "No se pudo obtener el token de sesión.")
         return
 
     if "Name" not in last_row or "Asset Type" not in last_row:
-        print("La última fila no contiene las columnas esperadas.")
+        messagebox.showerror("Error", "La última fila no contiene las columnas esperadas.")
         return
 
     location_id = obtener_location_id(session_token, last_row["Location"])
     if not location_id:
-        print(f"No se pudo encontrar la ubicación: {last_row['Location']}")
+        messagebox.showerror("Error", f"No se pudo encontrar la ubicación: {last_row['Location']}")
         return
 
     manufacturer_id = obtener_manufacturer_id(session_token, last_row["Manufacturer"])
     if not manufacturer_id:
-        print(f"No se pudo encontrar el fabricante: {last_row['Manufacturer']}")
+        messagebox.showerror("Error", f"No se pudo encontrar el fabricante: {last_row['Manufacturer']}")
         return
 
     if location_id is None or manufacturer_id is None:
-        print(f"No se pudo encontrar la ubicación o el fabricante para el activo '{last_row['Name']}'")
+        messagebox.showerror("Error", f"No se pudo encontrar la ubicación o el fabricante para el activo '{last_row['Name']}'")
         return
 
     # Preparar los datos para el registro en GLPI
@@ -202,21 +204,25 @@ def registrar_ultima_fila():
         "comments": last_row["Comments"].strip() if last_row["Comments"] else "N/A",
     }
 
-    print(f"Registrando asset: {asset_data}")
+    messagebox.showinfo("Información", f"Registrando asset: {asset_data}")
 
     registrar_asset(session_token, asset_data, last_row["Asset Type"])
 
 def registrar_por_nombre():
     df = pd.read_excel(ruta_excel)
     if df.empty:
-        print("El archivo Excel está vacío.")
+        messagebox.showerror("Error", "El archivo Excel está vacío.")
         return
 
-    nombre = input("Ingrese el nombre del activo a registrar: ").strip()
+    nombre = simpledialog.askstring("Input", "Ingrese el nombre del activo a registrar:").strip()
+    if not nombre:
+        messagebox.showerror("Error", "No se ingresó un nombre válido.")
+        return
+
     filtro = df[df["Name"].str.lower() == nombre.lower()]
 
     if filtro.empty:
-        print(f"No se encontró el activo con el nombre '{nombre}' en el archivo Excel.")
+        messagebox.showerror("Error", f"No se encontró el activo con el nombre '{nombre}' en el archivo Excel.")
         return
 
     row = filtro.iloc[0].to_dict()
@@ -226,7 +232,7 @@ def registrar_por_nombre():
     manufacturer_id = obtener_manufacturer_id(session_token, row["Manufacturer"])
 
     if location_id is None or manufacturer_id is None:
-        print(f"No se pudo encontrar la ubicación o el fabricante para el activo '{row['Name']}'")
+        messagebox.showerror("Error", f"No se pudo encontrar la ubicación o el fabricante para el activo '{row['Name']}'")
         return
 
     # Preparar los datos para el registro en GLPI
@@ -253,14 +259,14 @@ def procesar_archivo_excel(ruta_archivo):
 
     for columna in columnas_necesarias:
         if columna not in df.columns:
-            print(f"Error: La columna '{columna}' no existe en el archivo Excel.")
+            messagebox.showerror("Error", f"La columna '{columna}' no existe en el archivo Excel.")
             return
 
     df = df.fillna("").astype(str)
 
     session_token = obtener_token_sesion()
     if not session_token:
-        print("No se pudo obtener el token de sesión.")
+        messagebox.showerror("Error", "No se pudo obtener el token de sesión.")
         return
 
     # Mapeo para normalizar los tipos de assets
@@ -275,20 +281,20 @@ def procesar_archivo_excel(ruta_archivo):
         asset_type = asset_type_mapping.get(asset_type, None)
 
         if not asset_type:
-            print(f"Tipo de asset desconocido: '{row['Asset Type']}' (Fila {index + 1}). Se omite esta fila.")
+            messagebox.showerror("Error", f"Tipo de asset desconocido: '{row['Asset Type']}' (Fila {index + 1}). Se omite esta fila.")
             continue  # Saltar la fila si el tipo de asset no es válido
 
         # Obtener location_id
         location_id = obtener_location_id(session_token, row["Location"].strip())
         if location_id is None:
-            print(f"No se pudo encontrar la ubicación: {row['Location']} (Fila {index + 1})")
+            messagebox.showerror("Error", f"No se pudo encontrar la ubicación: {row['Location']} (Fila {index + 1})")
             continue  # Saltar la fila si no se encuentra la ubicación
 
         # Obtener manufacturer_id
         manufacturer_id = obtener_manufacturer_id(session_token, row["Manufacturer"].strip())
-        print(f"ID del fabricante encontrado '{row['Manufacturer']}': {manufacturer_id}")
+        #messagebox.showinfo("Información", f"ID del fabricante encontrado '{row['Manufacturer']}': {manufacturer_id}")
         if manufacturer_id is None:
-            print(f"No se pudo encontrar el fabricante: {row['Manufacturer']} (Fila {index + 1})")
+            messagebox.showerror("Error", f"No se pudo encontrar el fabricante: {row['Manufacturer']} (Fila {index + 1})")
             continue  # Saltar la fila si no se encuentra el fabricante
 
         asset_data = {
@@ -300,17 +306,17 @@ def procesar_archivo_excel(ruta_archivo):
             "comments": row["Comments"].strip(),
         }
 
-        print(f"Procesando fila {index + 1}: {asset_data} como {asset_type}")
+        messagebox.showinfo("Información", f"Procesando fila {index + 1}: {asset_data} como {asset_type}")
         registrar_asset(session_token, asset_data, asset_type)
 
 def escanear_qr():
     cap = cv2.VideoCapture(0)
-    print("Apunta la cámara al código QR. Presiona 'q' para salir.")
+    messagebox.showinfo("Información", "Apunta la cámara al código QR. Presiona 'q' para salir.")
 
     while True:
         ret, frame = cap.read()
         if not ret:
-            print("No se pudo acceder a la cámara.")
+            messagebox.showerror("Error", "No se pudo acceder a la cámara.")
             break
 
         gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -318,7 +324,7 @@ def escanear_qr():
 
         for qr in qr_codes:
             qr_data = qr.data.decode('utf-8')
-            print(f"Código QR escaneado: \n{qr_data}")
+            messagebox.showinfo("Información", f"Código QR escaneado: \n{qr_data}")
             cap.release()
             cv2.destroyAllWindows()
             return qr_data
@@ -338,18 +344,18 @@ def escanear_qr_con_celular():
     while True:
         cap = cv2.VideoCapture(ip_cam_url)
         if not cap.isOpened():
-            print("No se pudo acceder a la cámara del celular. Reintentando en 5 segundos...")
+            messagebox.showerror("Error", "No se pudo acceder a la cámara del celular. Reintentalo...")
             cap.release()
             cv2.destroyAllWindows()
             cv2.waitKey(5000)  # Esperar 5 segundos antes de reintentar
             continue
 
-        print("Usando la cámara del celular. Presiona 'q' para salir.")
+        messagebox.showinfo("Información", "Usando la cámara del celular. Presiona 'q' para salir.")
         
         while True:
             ret, frame = cap.read()
             if not ret:
-                print("Error al obtener el cuadro de la cámara. Reintentando conexión...")
+                messagebox.showerror("Error", "Error al obtener el cuadro de la cámara. Reintentando conexión...")
                 break  # Sale del bucle interno para reintentar la conexión
             
             gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -357,7 +363,7 @@ def escanear_qr_con_celular():
 
             for qr in qr_codes:
                 qr_data = qr.data.decode('utf-8')
-                print(f"Código QR escaneado: \n{qr_data}")
+                messagebox.showinfo("Información", f"Código QR escaneado: \n{qr_data}")
                 cap.release()
                 cv2.destroyAllWindows()
                 return qr_data
@@ -382,7 +388,7 @@ def parse_qr_data(qr_string):
 def verificar_existencia_en_excel(serial_number):
     df = pd.read_excel(ruta_excel)
     if serial_number in df["Serial Number"].values:
-        print(f"El activo con número de serie '{serial_number}' ya existe en el Excel.")
+        messagebox.showinfo("Información", f"El activo con número de serie '{serial_number}' ya existe en el Excel.")
         return True
     return False
 
@@ -391,26 +397,26 @@ def agregar_a_excel(asset_data):
         df = pd.read_excel(ruta_excel)
 
         if verificar_existencia_en_excel(asset_data["Serial Number"]):
-            print(f"El activo con serial '{asset_data['Serial Number']}' ya está registrado en el Excel. No se agregará.")
+            messagebox.showinfo("Información", f"El activo con serial '{asset_data['Serial Number']}' ya está registrado en el Excel. No se agregará.")
             return
 
-        nuevo_registro = pd.DataFrame([asset_data]) # Convertir el asset_data a un DataFrame de una fila
-        df = pd.concat([df, nuevo_registro], ignore_index=True) # Agregar la nueva fila al DataFrame existente
-        df.to_excel(ruta_excel, index=False) # Guardar el DataFrame actualizado en el Excel
-        print("Datos registrados exitosamente en el Excel.")
+        nuevo_registro = pd.DataFrame([asset_data])  # Convertir el asset_data a un DataFrame de una fila
+        df = pd.concat([df, nuevo_registro], ignore_index=True)  # Agregar la nueva fila al DataFrame existente
+        df.to_excel(ruta_excel, index=False)  # Guardar el DataFrame actualizado en el Excel
+        messagebox.showinfo("Éxito", "Datos registrados exitosamente en el Excel.")
 
         # Guardar la plantilla en un archivo .txt
         nombre_archivo_txt = f"C:/Users/sebastian.salgado/Desktop/GLPI-Asset-Automator/Templates/{asset_data['Name']}.txt"
         guardar_plantilla_txt(asset_data, nombre_archivo_txt)
 
         # Preguntar si se desea registrar en GLPI
-        registrar_glpi = input("¿Deseas registrar este activo en GLPI? (sí/no): ").strip().lower()
+        registrar_glpi = simpledialog.askstring("Registrar en GLPI", "¿Deseas registrar este activo en GLPI? (sí/no):").strip().lower()
         if registrar_glpi == "sí" or registrar_glpi == "si":
             registrar_ultima_fila()
         else:
-            print("El activo no fue registrado en GLPI.")
+            messagebox.showinfo("Información", "El activo no fue registrado en GLPI.")
     except Exception as e:
-        print(f"Error al guardar los datos: {e}")
+        messagebox.showerror("Error", f"Error al guardar los datos: {e}")
 
 def procesar_qr_dell(qr_data):
     # Plantilla de la laptop Dell Latitude
@@ -428,9 +434,9 @@ def procesar_qr_dell(qr_data):
     }
 
     # Solicitar datos adicionales al usuario
-    #plantilla_dell["Status"] = input("Ingrese el estado del activo (Activo/Inactivo): ").strip()
-    #plantilla_dell["User"] = input("Ingrese el nombre del usuario: ").strip()
-    plantilla_dell["Location"] = input("Ingrese la ubicación del activo: ").strip()
+    #plantilla_dell["Status"] = simpledialog.askstring("Input", "Ingrese el estado del activo (Activo/Inactivo):").strip()
+    #plantilla_dell["User"] = simpledialog.askstring("Input", "Ingrese el nombre del usuario:").strip()
+    plantilla_dell["Location"] = simpledialog.askstring("Input", "Ingrese la ubicación del activo:").strip()
     
     # Generar el nombre del activo a partir del usuario
     plantilla_dell["Name"] = f"{plantilla_dell['User']}-Latitude"
@@ -453,9 +459,9 @@ def procesar_qr_mac(qr_data):
     }
 
     # Solicitar datos adicionales al usuario
-    #plantilla_mac["Status"] = input("Ingrese el estado del activo (Activo/Inactivo): ").strip()
-    #plantilla_mac["User"] = input("Ingrese el nombre del usuario: ").strip()
-    plantilla_mac["Location"] = input("Ingrese la ubicación del activo: ").strip()
+    #plantilla_mac["Status"] = simpledialog.askstring("Input", "Ingrese el estado del activo (Activo/Inactivo):").strip()
+    #plantilla_mac["User"] = simpledialog.askstring("Input", "Ingrese el nombre del usuario:").strip()
+    plantilla_mac["Location"] = simpledialog.askstring("Input", "Ingrese la ubicación del activo:").strip()
     
     # Generar el nombre del activo a partir del usuario
     plantilla_mac["Name"] = f"{plantilla_mac['User']}-MacBookPro"
@@ -466,7 +472,7 @@ def guardar_plantilla_txt(asset_data, nombre_archivo):
     with open(nombre_archivo, 'w') as file:
         for key, value in asset_data.items():
             file.write(f"{key}: {value}\n")
-    print(f"Plantilla guardada en {nombre_archivo}")
+    messagebox.showinfo("Información", f"Plantilla guardada en {nombre_archivo}")
 
 def agregar_a_excel_dell(asset_data):
     try:
@@ -474,32 +480,32 @@ def agregar_a_excel_dell(asset_data):
         nuevo_registro = pd.DataFrame([asset_data])  # Convertir la plantilla a un DataFrame de una fila
         df = pd.concat([df, nuevo_registro], ignore_index=True)
         df.to_excel(ruta_excel, index=False)
-        print("Datos registrados exitosamente en el Excel.")
+        messagebox.showinfo("Éxito", "Datos registrados exitosamente en el Excel.")
 
         # Guardar la plantilla en un archivo .txt
         nombre_archivo_txt = f"C:/Users/sebastian.salgado/Desktop/GLPI-Asset-Automator/Templates/{asset_data['Name']}.txt"
         guardar_plantilla_txt(asset_data, nombre_archivo_txt)
 
     except Exception as e:
-        print(f"Error al guardar los datos: {e}")
+        messagebox.showerror("Error", f"Error al guardar los datos: {e}")
 
 def agregar_a_excel_mac(asset_data):
     try:
         if verificar_existencia_en_excel(asset_data["Serial Number"]):
-            print(f"El activo con serial '{asset_data['Serial Number']}' ya está registrado en el Excel. No se agregará.")
+            messagebox.showinfo("Información", f"El activo con serial '{asset_data['Serial Number']}' ya está registrado en el Excel. No se agregará.")
             return
         df = pd.read_excel(ruta_excel)
         nuevo_registro = pd.DataFrame([asset_data])  # Convertir la plantilla a un DataFrame de una fila
         df = pd.concat([df, nuevo_registro], ignore_index=True)
         df.to_excel(ruta_excel, index=False)
-        print("Datos registrados exitosamente en el Excel.")
+        messagebox.showinfo("Éxito", "Datos registrados exitosamente en el Excel.")
 
         # Guardar la plantilla en un archivo .txt
         nombre_archivo_txt = f"C:/Users/sebastian.salgado/Desktop/GLPI-Asset-Automator/Templates/{asset_data['Name']}.txt"
         guardar_plantilla_txt(asset_data, nombre_archivo_txt)
 
     except Exception as e:
-        print(f"Error al guardar los datos: {e}")
+        messagebox.showerror("Error", f"Error al guardar los datos: {e}")
         
 def extraer_service_tag(qr_data):
     match = re.search(r"Service tag:\s*([A-Za-z0-9]+)", qr_data, re.IGNORECASE)
@@ -524,7 +530,7 @@ def manejar_qr_dell():
     if qr_data:
         # Mejorar la detección para considerar patrones adicionales
         if any(keyword in qr_data.lower() for keyword in ["dell", "service tag", "made in vietnam", "Service tag", "Dell", "S/N", "(S/N)", "SN"]) or qr_data.startswith("CS") or len(qr_data) == 7:
-            print("Laptop Dell detectada. Procesando datos...")
+            messagebox.showinfo("Información", "Laptop Dell detectada. Procesando datos...")
             
             if len(qr_data) > 7:  # Verificar si el QR escaneado contiene más información de la cuenta
                 service_tag = extraer_service_tag(qr_data)
@@ -532,29 +538,29 @@ def manejar_qr_dell():
                 service_tag = qr_data  # Si solo tiene el serial en QR directamente
             
             if service_tag:
-                print(f"Service Tag detectado: {service_tag}")
-                confirmacion = input("¿Es correcto este Service Tag, desea continuar? (sí/no): ").strip().lower()
+                #messagebox.showinfo("Información", f"Service Tag detectado: {service_tag}")
+                confirmacion = simpledialog.askstring("Confirmación", f"¿Es correcto este Service Tag: {service_tag}, desea continuar? (sí/no):").strip().lower()
                 if confirmacion not in ["sí", "si", "Si", "Sí"]:
-                    print("Operación cancelada por el usuario.")
+                    messagebox.showinfo("Información", "Operación cancelada por el usuario.")
                     return
                 else:
                     if verificar_existencia_en_excel(service_tag):
-                        print(f"El activo con serial '{service_tag}' ya está registrado en el Excel. No se agregará.")
+                        messagebox.showinfo("Información", f"El activo con serial '{service_tag}' ya está registrado en el Excel. No se agregará.")
                         return
                     asset_data = procesar_qr_dell(service_tag)
                     agregar_a_excel_dell(asset_data)
             else:
-                print("No se detectó un Service Tag válido en el QR escaneado.")
+                messagebox.showerror("Error", "No se detectó un Service Tag válido en el QR escaneado.")
         else:
-            print("Código QR no corresponde a un equipo Dell.")
+            messagebox.showerror("Error", "Código QR no corresponde a un equipo Dell.")
     else:
-        print("No se detectó ningún código QR.")
+        messagebox.showerror("Error", "No se detectó ningún código QR.")
 
 def manejar_qr_mac():
     qr_data = escanear_qr_con_celular()
     if qr_data:
-        if "MacBook" in qr_data or "Serial Number:" in qr_data or qr_data.startswith("C02") or 10<= len(qr_data) <= 12:  # Detectar si es Mac por patrones comunes
-            print("Laptop MacBook detectada. Procesando datos...")
+        if "MacBook" in qr_data or "Serial Number:" in qr_data or qr_data.startswith("C02") or 10 <= len(qr_data) <= 12:  # Detectar si es Mac por patrones comunes
+            messagebox.showinfo("Información", "Laptop MacBook detectada. Procesando datos...")
 
             if len(qr_data) > 12:
                 serial_number = extraer_serial_mac(qr_data)
@@ -562,21 +568,23 @@ def manejar_qr_mac():
                 serial_number = qr_data
 
             if serial_number:
-                print(f"Serial Number detectado: {serial_number}")
-                confirmacion = input("¿Es correcto este Service Tag, desea continuar? (sí/no): ").strip().lower()
+                #messagebox.showinfo("Información", f"Serial Number detectado: {serial_number}")
+                confirmacion = simpledialog.askstring("Confirmación", f"¿Es correcto este Serial Number: {serial_number} desea continuar? (sí/no):").strip().lower()
                 if confirmacion not in ["sí", "si", "Si", "Sí"]:
-                    print("Operación cancelada por el usuario.")
+                    messagebox.showinfo("Información", "Operación cancelada por el usuario.")
                     return
                 else:
                     if verificar_existencia_en_excel(serial_number):
-                        print(f"El activo con serial '{serial_number}' ya está registrado en el Excel. No se agregará.")
+                        messagebox.showinfo("Información", f"El activo con serial '{serial_number}' ya está registrado en el Excel. No se agregará.")
                         return
                     asset_data = procesar_qr_mac(serial_number)
                     agregar_a_excel_mac(asset_data)
+            else:
+                messagebox.showerror("Error", "No se detectó un Serial Number válido en el QR escaneado.")
         else:
-            print("Código QR no corresponde a un equipo Mac.")
+            messagebox.showerror("Error", "Código QR no corresponde a un equipo Mac.")
     else:
-        print("No se detectó ningún código QR.")
+        messagebox.showerror("Error", "No se detectó ningún código QR.")
 
 def manejar_qr_laptop():
     while True:
@@ -588,7 +596,7 @@ def manejar_qr_laptop():
             # Detectar si es una laptop Dell
             patrones_dell = ["dell", "service tag", "made in vietnam", "Service tag", "Dell", "S/N", "(S/N)", "SN"]
             if any(keyword in qr_data_lower for keyword in patrones_dell) or qr_data.startswith("CS") or len(qr_data) == 7:
-                print("Laptop Dell detectada. Procesando datos...")
+                messagebox.showinfo("Información", "Laptop Dell detectada. Procesando datos...")
 
                 if len(qr_data) > 7:
                     serial_number = extraer_service_tag(qr_data)
@@ -596,25 +604,25 @@ def manejar_qr_laptop():
                     serial_number = qr_data  # Si el QR contiene solo el serial
 
                 if serial_number:
-                    print(f"Service Tag detectado: {serial_number}")
-                    confirmacion = input("¿Es correcto este Service Tag, desea continuar? (sí/no): ").strip().lower()
+                    #messagebox.showinfo("Información", f"Service Tag detectado: {serial_number}")
+                    confirmacion = simpledialog.askstring("Confirmación", f"¿Es correcto este Service Tag: {serial_number}, desea continuar? (sí/no): ").strip().lower()
                     if confirmacion in ["sí", "si", "Si", "Sí"]:
                         if verificar_existencia_en_excel(serial_number):
-                            print(f"El activo con serial '{serial_number}' ya está registrado en el Excel. No se agregará.")
+                            messagebox.showinfo("Información", f"El activo con serial '{serial_number}' ya está registrado en el Excel. No se agregará.")
                             return
                         asset_data = procesar_qr_dell(serial_number)
                         agregar_a_excel_dell(asset_data)
                         break
                     else:
-                        print("Reintentando escaneo...")
+                        messagebox.showinfo("Información", "Reintentando escaneo...")
                         continue
                 else:
-                    print("No se detectó un Service Tag válido. Reintentando...")
+                    messagebox.showerror("Error", "No se detectó un Service Tag válido. Reintentando...")
                     continue
 
             # Detectar si es una laptop MacBook
             if any(keyword in qr_data_lower for keyword in ["macbook", "serial number"]) or qr_data.startswith("C02") or 10 <= len(qr_data) <= 12:
-                print("Laptop MacBook detectada. Procesando datos...")
+                messagebox.showinfo("Información", "Laptop MacBook detectada. Procesando datos...")
 
                 if len(qr_data) > 12:
                     serial_number = extraer_serial_mac(qr_data)
@@ -622,25 +630,25 @@ def manejar_qr_laptop():
                     serial_number = qr_data
 
                 if serial_number:
-                    print(f"Serial Number detectado: {serial_number}")
-                    confirmacion = input("¿Es correcto este Serial Number, desea continuar? (sí/no): ").strip().lower()
+                    #messagebox.showinfo("Información", f"Serial Number detectado: {serial_number}")
+                    confirmacion = simpledialog.askstring("Confirmación", "¿Es correcto este Serial Number:", serial_number, "desea continuar? (sí/no): ").strip().lower()
                     if confirmacion in ["sí", "si", "Si", "Sí"]:
                         if verificar_existencia_en_excel(serial_number):
-                            print(f"El activo con serial '{serial_number}' ya está registrado en el Excel. No se agregará.")
+                            messagebox.showinfo("Información", f"El activo con serial '{serial_number}' ya está registrado en el Excel. No se agregará.")
                             return
                         asset_data = procesar_qr_mac(serial_number)
                         agregar_a_excel_mac(asset_data)
                         break
                     else:
-                        print("Reintentando escaneo...")
+                        messagebox.showinfo("Información", "Reintentando escaneo...")
                         continue
                 else:
-                    print("No se detectó un Serial Number válido. Reintentando...")
+                    messagebox.showerror("Error", "No se detectó un Serial Number válido. Reintentando...")
                     continue
 
-            print("Código QR no corresponde a un equipo Dell ni Mac. Reintentando...")
+            messagebox.showerror("Error", "Código QR no corresponde a un equipo Dell ni Mac. Reintentando...")
         else:
-            print("No se detectó ningún código QR. Reintentando...")
+            messagebox.showerror("Error", "No se detectó ningún código QR. Reintentando...")
 
 def obtener_user_id(session_token, username):
     headers = {
@@ -666,13 +674,13 @@ def obtener_user_id(session_token, username):
 
             # Comparar el nombre normalizado
             if nombre_completo.lower() == username.strip().lower() or username_glpi.lower() == username.strip().lower():
-                print(f"Usuario encontrado: {nombre_completo}, ID: {user.get('1')}")
+                messagebox.showinfo("Información", f"Usuario encontrado: {nombre_completo}, ID: {user.get('1')}")
                 return user.get("1")  # Asegúrate de que '1' es el ID correcto en tu sistema GLPI
 
-        print(f"No se encontró el usuario '{username}' en GLPI.")
+        messagebox.showerror("Información", f"No se encontró el usuario '{username}' en GLPI.")
         return None
     else:
-        print(f"Error al buscar el usuario en GLPI: {response.status_code}")
+        messagebox.showerror("Error", f"Error al buscar el usuario en GLPI: {response.status_code}")
         return None
 
 def actualizar_asset_glpi(session_token, asset_id, asset_data):
@@ -684,9 +692,9 @@ def actualizar_asset_glpi(session_token, asset_id, asset_data):
 
     # Obtener el ID del usuario basado en su nombre
     user_id = obtener_user_id(session_token, asset_data["User"])
-    print(f"ID del usuario encontrado: {user_id}")
+    messagebox.showinfo("Información", f"ID del usuario encontrado: {user_id}")
     if not user_id:
-        print(f"Error: No se encontró el usuario '{asset_data['User']}' en GLPI.")
+        messagebox.showerror("Error", f"No se encontró el usuario '{asset_data['User']}' en GLPI.")
         return
 
     # Determinar el nuevo nombre según el fabricante
@@ -695,7 +703,7 @@ def actualizar_asset_glpi(session_token, asset_id, asset_data):
     elif "Apple" in asset_data["Manufacturer"]:
         new_name = f"{asset_data['User']}-MacBookPro"
     else:
-        print("No se pudo determinar el fabricante del laptop.")
+        messagebox.showerror("Error", "No se pudo determinar el fabricante del laptop.")
         return
 
     # Preparar datos para la actualización en GLPI
@@ -710,13 +718,13 @@ def actualizar_asset_glpi(session_token, asset_id, asset_data):
     response = requests.put(f"{GLPI_URL}/Computer/{asset_id}", headers=headers, json=payload, verify=False)
 
     if response.status_code == 200:
-        print(f"Activo con ID {asset_id} actualizado correctamente en GLPI con el nombre '{new_name}'.")
+        messagebox.showinfo("Éxito", f"Activo con ID {asset_id} actualizado correctamente en GLPI con el nombre '{new_name}'.")
     else:
-        print(f"Error al actualizar el activo en GLPI: {response.status_code}")
+        messagebox.showerror("Error", f"Error al actualizar el activo en GLPI: {response.status_code}")
         try:
-            print(response.json())
+            messagebox.showerror("Error", response.json())
         except json.JSONDecodeError:
-            print(response.text)
+            messagebox.showerror("Error", response.text)
 
 def obtener_asset_id_por_serial(session_token, serial_number):
     headers = {
@@ -741,14 +749,14 @@ def obtener_asset_id_por_serial(session_token, serial_number):
             asset_name = asset.get("1")  # Clave 1 es el nombre del asset
             
             if serial_found == serial_number.lower():
-                print(f"Activo encontrado: {asset_name}, Serial: {serial_number}")
+                messagebox.showinfo("Información", f"Activo encontrado: {asset_name}, Serial: {serial_number}")
                 # Ahora buscamos el ID utilizando el nombre del activo encontrado
                 return obtener_id_por_nombre(session_token, asset_name)
 
-        print(f"No se encontró un activo con el serial number '{serial_number}' en GLPI.")
+        messagebox.showinfo("Información", f"No se encontró un activo con el serial number '{serial_number}' en GLPI.")
         return None
     else:
-        print(f"Error al buscar el activo en GLPI: {response.status_code}")
+        messagebox.showerror("Error", f"Error al buscar el activo en GLPI: {response.status_code}")
         return None
 
 def obtener_id_por_nombre(session_token, asset_name):
@@ -769,48 +777,48 @@ def obtener_id_por_nombre(session_token, asset_name):
     if response.status_code == 200:
         for asset in response.json():
             if asset.get("name").strip().lower() == asset_name.strip().lower():
-                print(f"Activo encontrado: {asset_name}, ID: {asset.get('id')}")
+                messagebox.showinfo("Información", f"Activo encontrado: {asset_name}, ID: {asset.get('id')}")
                 return asset.get("id")
 
-        print(f"No se encontró el ID para el activo '{asset_name}' en GLPI.")
+        messagebox.showinfo("Información", f"No se encontró el ID para el activo '{asset_name}' en GLPI.")
         return None
     else:
-        print(f"Error al buscar el ID del activo: {response.status_code}")
+        messagebox.showerror("Error", f"Error al buscar el ID del activo: {response.status_code}")
         return None
 
 def entregar_laptop():
-    print("\n--- Entregar Laptop a Usuario ---")
-    metodo = input("¿Desea escanear el QR o ingresar el Service Tag manualmente? (escanear/manual): ").strip().lower()
+    messagebox.showinfo("Información", "--- Entregar Laptop a Usuario ---")
+    metodo = simpledialog.askstring("Input", "¿Desea escanear el QR o ingresar el Service Tag manualmente? (escanear/manual):").strip().lower()
 
     if metodo == "escanear":
         qr_data = escanear_qr_con_celular()
         if any(keyword in qr_data.lower() for keyword in ["dell", "service tag", "made in vietnam", "s/n", "(s/n)", "sn"]) or qr_data.startswith("CS") or len(qr_data) == 7:
-            print("Laptop Dell detectada. Procesando datos...")
+            messagebox.showinfo("Información", "Laptop Dell detectada. Procesando datos...")
             serial_number = extraer_service_tag(qr_data) if len(qr_data) > 7 else qr_data
         elif any(keyword in qr_data.lower() for keyword in ["macbook", "serial number"]) or qr_data.startswith("C02") or 10 <= len(qr_data) <= 12:
-            print("Laptop MacBook detectada. Procesando datos...")
+            messagebox.showinfo("Información", "Laptop MacBook detectada. Procesando datos...")
             serial_number = extraer_serial_mac(qr_data) if len(qr_data) > 12 else qr_data
         else:
-            print("Código QR no corresponde a un equipo Dell ni Mac.")
+            messagebox.showerror("Error", "Código QR no corresponde a un equipo Dell ni Mac.")
             return
     elif metodo == "manual":
-        serial_number = input("Ingrese el Service Tag del laptop: ").strip()
+        serial_number = simpledialog.askstring("Input", "Ingrese el Service Tag del laptop:").strip()
     else:
-        print("Método no válido. Intente nuevamente.")
+        messagebox.showerror("Error", "Método no válido. Intente nuevamente.")
         return
 
     df = pd.read_excel(ruta_excel)
     if df.empty:
-        print("El archivo Excel está vacío.")
+        messagebox.showerror("Error", "El archivo Excel está vacío.")
         return
 
     filtro = df[df["Serial Number"].str.lower() == serial_number.lower()]
 
     if filtro.empty:
-        print(f"No se encontró un laptop con el Service Tag '{serial_number}' en el archivo Excel.")
+        messagebox.showerror("Error", f"No se encontró un laptop con el Service Tag '{serial_number}' en el archivo Excel.")
         return
 
-    nuevo_usuario = input("Ingrese el nombre del usuario que recibirá el laptop: ").strip()
+    nuevo_usuario = simpledialog.askstring("Input", "Ingrese el nombre del usuario que recibirá el laptop:").strip()
 
     # Manejar valores NaN antes de actualizar el DataFrame
     df["User"] = df["User"].fillna("")
@@ -823,24 +831,24 @@ def entregar_laptop():
     elif "Apple" in fabricante:
         new_name = f"{nuevo_usuario}-MacBookPro"
     else:
-        print("No se pudo determinar el fabricante del laptop.")
+        messagebox.showerror("Error", "No se pudo determinar el fabricante del laptop.")
         return
 
     df.loc[df["Serial Number"].str.lower() == serial_number.lower(), "User"] = nuevo_usuario
     df.loc[df["Serial Number"].str.lower() == serial_number.lower(), "Name"] = new_name
 
     df.to_excel(ruta_excel, index=False)
-    print(f"Laptop con Service Tag '{serial_number}' asignado a '{nuevo_usuario}' en el Excel.")
+    messagebox.showinfo("Información", f"Laptop con Service Tag '{serial_number}' asignado a '{nuevo_usuario}' en el Excel.")
 
     # Actualizar en GLPI
     session_token = obtener_token_sesion()
     if not session_token:
-        print("No se pudo obtener el token de sesión.")
+        messagebox.showerror("Error", "No se pudo obtener el token de sesión.")
         return
 
     asset_id = obtener_asset_id_por_serial(session_token, serial_number)
     if not asset_id:
-        print("No se pudo encontrar el activo en GLPI.")
+        messagebox.showerror("Error", "No se pudo encontrar el activo en GLPI.")
         return
 
     asset_data = filtro.iloc[0].to_dict()
@@ -864,9 +872,9 @@ def procesar_qr_monitor(qr_data):
     }
 
     # Solicitar datos adicionales al usuario
-    plantilla_monitor["Location"] = input("Ingrese la ubicación del monitor: ").strip()
-    #plantilla_monitor["Manufacturer"] = input("Ingrese el fabricante del monitor: ").strip()
-    #plantilla_monitor["Model"] = input("Ingrese el modelo del monitor: ").strip()
+    plantilla_monitor["Location"] = simpledialog.askstring("Input", "Ingrese la ubicación del monitor:").strip()
+    #plantilla_monitor["Manufacturer"] = simpledialog.askstring("Input", "Ingrese el fabricante del monitor:").strip()
+    #plantilla_monitor["Model"] = simpledialog.askstring("Input", "Ingrese el modelo del monitor:").strip()
 
     # Generar el nombre del activo a partir del modelo
     plantilla_monitor["Name"] = f"{plantilla_monitor['Model']}-{plantilla_monitor['Serial Number']}"
@@ -877,26 +885,26 @@ def manejar_qr_monitor():
     qr_data = escanear_qr_con_celular()
     if qr_data:
         if any(keyword in qr_data.lower() for keyword in ["monitor", "display", "serial number", "CN-", "SN", "S/N", "CN"]) or len(qr_data) == 7 or len(qr_data) > 12:
-            print("Monitor detectado. Procesando datos...")
+            messagebox.showinfo("Información", "Monitor detectado. Procesando datos...")
 
             serial_number = qr_data.strip()
 
             if serial_number:
-                print(f"Serial Number detectado: {serial_number}")
-                confirmacion = input("¿Es correcto este Serial Number, desea continuar? (sí/no): ").strip().lower()
+                messagebox.showinfo("Información", f"Serial Number detectado: {serial_number}")
+                confirmacion = simpledialog.askstring("Confirmación", "¿Es correcto este Serial Number, desea continuar? (sí/no): ").strip().lower()
                 if confirmacion not in ["sí", "si"]:
-                    print("Operación cancelada por el usuario.")
+                    messagebox.showinfo("Información", "Operación cancelada por el usuario.")
                     return
                 else:
                     if verificar_existencia_en_excel(serial_number):
-                        print(f"El activo con serial '{serial_number}' ya está registrado en el Excel. No se agregará.")
+                        messagebox.showinfo("Información", f"El activo con serial '{serial_number}' ya está registrado en el Excel. No se agregará.")
                         return
                     asset_data = procesar_qr_monitor(serial_number)
                     agregar_a_excel(asset_data)
         else:
-            print("Código QR no corresponde a un monitor.")
+            messagebox.showerror("Error", "Código QR no corresponde a un monitor.")
     else:
-        print("No se detectó ningún código QR.")
+        messagebox.showerror("Error", "No se detectó ningún código QR.")
 
 def actualizar_asset_glpi_monitor(session_token, asset_id, asset_data):
     headers = {
@@ -907,9 +915,9 @@ def actualizar_asset_glpi_monitor(session_token, asset_id, asset_data):
 
     # Obtener el ID del usuario basado en su nombre
     user_id = obtener_user_id(session_token, asset_data["User"])
-    print(f"ID del usuario encontrado: {user_id}")
+    messagebox.showinfo("Información", f"ID del usuario encontrado: {user_id}")
     if not user_id:
-        print(f"Error: No se encontró el usuario '{asset_data['User']}' en GLPI.")
+        messagebox.showerror("Error", f"No se encontró el usuario '{asset_data['User']}' en GLPI.")
         return
 
     # Determinar el nuevo nombre del monitor
@@ -932,13 +940,13 @@ def actualizar_asset_glpi_monitor(session_token, asset_id, asset_data):
     response = requests.put(f"{GLPI_URL}/Monitor/{asset_id}", headers=headers, json=payload, verify=False)
 
     if response.status_code == 200:
-        print(f"Monitor con ID {asset_id} actualizado correctamente en GLPI con el nombre '{new_name}'.")
+        messagebox.showinfo("Éxito", f"Monitor con ID {asset_id} actualizado correctamente en GLPI con el nombre '{new_name}'.")
     else:
-        print(f"Error al actualizar el monitor en GLPI: {response.status_code}")
+        messagebox.showerror("Error", f"Error al actualizar el monitor en GLPI: {response.status_code}")
         try:
-            print(response.json())
+            messagebox.showerror("Error", response.json())
         except json.JSONDecodeError:
-            print(response.text)
+            messagebox.showerror("Error", response.text)
 
 def obtener_id_por_nombre_monitor(session_token, asset_name):
     headers = {
@@ -957,13 +965,13 @@ def obtener_id_por_nombre_monitor(session_token, asset_name):
     if response.status_code == 200:
         for asset in response.json():
             if asset.get("name").strip().lower() == asset_name.strip().lower():
-                print(f"Monitor encontrado: {asset_name}, ID: {asset.get('id')}")
+                messagebox.showinfo("Información", f"Monitor encontrado: {asset_name}, ID: {asset.get('id')}")
                 return asset.get("id")
 
-        print(f"No se encontró el ID para el monitor '{asset_name}' en GLPI.")
+        messagebox.showinfo("Información", f"No se encontró el ID para el monitor '{asset_name}' en GLPI.")
         return None
     else:
-        print(f"Error al buscar el ID del monitor: {response.status_code}")
+        messagebox.showerror("Error", f"Error al buscar el ID del monitor: {response.status_code}")
         return None
 
 def obtener_asset_id_por_serial_monitor(session_token, serial_number):
@@ -988,45 +996,45 @@ def obtener_asset_id_por_serial_monitor(session_token, serial_number):
             asset_name = asset.get("1")  # Clave 1 es el nombre del asset
             
             if serial_found == serial_number.lower():
-                print(f"Monitor encontrado: {asset_name}, Serial: {serial_number}")
+                messagebox.showinfo("Información", f"Monitor encontrado: {asset_name}, Serial: {serial_number}")
                 return obtener_id_por_nombre_monitor(session_token, asset_name)
 
-        print(f"No se encontró un monitor con el número de serie '{serial_number}' en GLPI.")
+        messagebox.showinfo("Información", f"No se encontró un monitor con el número de serie '{serial_number}' en GLPI.")
         return None
     else:
-        print(f"Error al buscar el monitor en GLPI: {response.status_code}")
+        messagebox.showerror("Error", f"Error al buscar el monitor en GLPI: {response.status_code}")
         return None
 
 def entregar_monitor():
-    print("\n--- Entregar Monitor a Usuario ---")
-    metodo = input("¿Desea escanear el QR o ingresar el número de serie manualmente? (escanear/manual): ").strip().lower()
+    messagebox.showinfo("Información", "--- Entregar Monitor a Usuario ---")
+    metodo = simpledialog.askstring("Input", "¿Desea escanear el QR o ingresar el número de serie manualmente? (escanear/manual):").strip().lower()
 
     if metodo == "escanear":
         qr_data = escanear_qr_con_celular()
         if any(keyword in qr_data.lower() for keyword in ["monitor", "serial number", "sn", "cn"]) or len(qr_data) >= 7:
-            print("Monitor detectado. Procesando datos...")
+            messagebox.showinfo("Información", "Monitor detectado. Procesando datos...")
             serial_number = qr_data.strip()
         else:
-            print("Código QR no corresponde a un monitor válido.")
+            messagebox.showerror("Error", "Código QR no corresponde a un monitor válido.")
             return
     elif metodo == "manual":
-        serial_number = input("Ingrese el número de serie del monitor: ").strip()
+        serial_number = simpledialog.askstring("Input", "Ingrese el número de serie del monitor:").strip()
     else:
-        print("Método no válido. Intente nuevamente.")
+        messagebox.showerror("Error", "Método no válido. Intente nuevamente.")
         return
 
     df = pd.read_excel(ruta_excel)
     if df.empty:
-        print("El archivo Excel está vacío.")
+        messagebox.showerror("Error", "El archivo Excel está vacío.")
         return
 
     filtro = df[df["Serial Number"].str.lower() == serial_number.lower()]
 
     if filtro.empty:
-        print(f"No se encontró un monitor con el número de serie '{serial_number}' en el archivo Excel.")
+        messagebox.showerror("Error", f"No se encontró un monitor con el número de serie '{serial_number}' en el archivo Excel.")
         return
 
-    nuevo_usuario = input("Ingrese el nombre del usuario que recibirá el monitor: ").strip()
+    nuevo_usuario = simpledialog.askstring("Input", "Ingrese el nombre del usuario que recibirá el monitor:").strip()
 
     # Manejar valores NaN antes de actualizar el DataFrame
     df["User"] = df["User"].fillna("")
@@ -1045,17 +1053,17 @@ def entregar_monitor():
     df.loc[df["Serial Number"].str.lower() == serial_number.lower(), "Name"] = new_name
 
     df.to_excel(ruta_excel, index=False)
-    print(f"Monitor con número de serie '{serial_number}' asignado a '{nuevo_usuario}' en el Excel.")
+    messagebox.showinfo("Información", f"Monitor con número de serie '{serial_number}' asignado a '{nuevo_usuario}' en el Excel.")
 
     # Actualizar en GLPI
     session_token = obtener_token_sesion()
     if not session_token:
-        print("No se pudo obtener el token de sesión.")
+        messagebox.showerror("Error", "No se pudo obtener el token de sesión.")
         return
 
     asset_id = obtener_asset_id_por_serial_monitor(session_token, serial_number)
     if not asset_id:
-        print("No se pudo encontrar el activo en GLPI.")
+        messagebox.showerror("Error", "No se pudo encontrar el activo en GLPI.")
         return
 
     asset_data = filtro.iloc[0].to_dict()
@@ -1065,20 +1073,20 @@ def entregar_monitor():
     actualizar_asset_glpi_monitor(session_token, asset_id, asset_data)
 
 def agregar_consumible():
-    print("\n--- Agregar Consumible al Stock ---")
+    messagebox.showinfo("Información", "--- Agregar Consumible al Stock ---")
 
-    metodo = input("¿Desea escanear el QR o ingresar manualmente? (qr/manual): ").strip().lower()
+    metodo = simpledialog.askstring("Input", "¿Desea escanear el QR o ingresar manualmente? (qr/manual): ").strip().lower()
 
     if metodo == "qr":
         qr_data = escanear_qr_con_celular()
         if qr_data:
             inventory_number = qr_data.strip()
-            print(f"Inventory Number detectado: {inventory_number}")
+            messagebox.showinfo("Información", f"Inventory Number detectado: {inventory_number}")
         else:
-            print("No se detectó ningún código QR.")
+            messagebox.showerror("Error", "No se detectó ningún código QR.")
             return
     else:
-        inventory_number = input("Ingrese el número de inventario o activo: ").strip()
+        inventory_number = simpledialog.askstring("Input", "Ingrese el número de inventario o activo: ").strip()
 
     df = pd.read_excel(ruta_excel_consumibles)
     df.columns = df.columns.str.strip()  # Asegura que no haya espacios en los nombres de columnas
@@ -1087,55 +1095,55 @@ def agregar_consumible():
     filtro = df[df["Inventory/Asset Number"].astype(str).str.lower() == inventory_number.lower()]
 
     if not filtro.empty:
-        print(f"Consumible con Inventory Number '{inventory_number}' encontrado en el Excel.")
+        messagebox.showinfo("Información", f"Consumible con Inventory Number '{inventory_number}' encontrado en el Excel.")
         nombre_consumible = filtro.iloc[0]["Name"]
         location = filtro.iloc[0]["Location"]
     else:
-        print(f"No se encontró un consumible con el número de inventario '{inventory_number}'. Creando nuevo...")
-        nombre_consumible = input("Ingrese el nombre del nuevo consumible: ").strip()
-        location = input("Ingrese la ubicación del consumible: ").strip()
+        messagebox.showinfo("Información", f"No se encontró un consumible con el número de inventario '{inventory_number}'. Creando nuevo...")
+        nombre_consumible = simpledialog.askstring("Input", "Ingrese el nombre del nuevo consumible: ").strip()
+        location = simpledialog.askstring("Input", "Ingrese la ubicación del consumible: ").strip()
 
-    cantidad = int(input("Ingrese la cantidad a agregar al stock: "))
+    cantidad = int(simpledialog.askstring("Input", "Ingrese la cantidad a agregar al stock: "))
 
     session_token = obtener_token_sesion()
     if not session_token:
-        print("No se pudo obtener el token de sesión.")
+        messagebox.showerror("Error", "No se pudo obtener el token de sesión.")
         return
 
     # Corrección: Se pasa tanto el nombre como el inventory_number a la función
     consumible_id = obtener_id_consumible(session_token, nombre_consumible, inventory_number)
     
     if not consumible_id:
-        print(f"No se encontró el consumible '{nombre_consumible}' en GLPI. Creando uno nuevo...")
+        messagebox.showinfo("Información", f"No se encontró el consumible '{nombre_consumible}' en GLPI. Creando uno nuevo...")
         consumible_id = crear_consumible(session_token, nombre_consumible, inventory_number, location, cantidad)
         if not consumible_id:
-            print("Error al crear el consumible en GLPI.")
+            messagebox.showerror("Error", "Error al crear el consumible en GLPI.")
             return
 
     stock_actual = obtener_stock_actual(session_token, consumible_id)
     nuevo_stock = stock_actual + cantidad
 
     actualizar_stock_glpi(session_token, consumible_id, nuevo_stock)
-    print(f"Consumible '{nombre_consumible}' actualizado a {nuevo_stock} unidades en stock.")
+    messagebox.showinfo("Información", f"Consumible '{nombre_consumible}' actualizado a {nuevo_stock} unidades en stock.")
 
     # Registrar en Excel
     actualizar_excel_consumible(nombre_consumible, inventory_number, location, nuevo_stock)
 
 def quitar_consumible():
-    print("\n--- Quitar Consumible del Stock ---")
+    messagebox.showinfo("Información", "--- Quitar Consumible del Stock ---")
 
-    metodo = input("¿Desea escanear el QR o ingresar manualmente? (qr/manual): ").strip().lower()
+    metodo = simpledialog.askstring("Input", "¿Desea escanear el QR o ingresar manualmente? (qr/manual): ").strip().lower()
 
     if metodo == "qr":
         qr_data = escanear_qr_con_celular()
         if qr_data:
             inventory_number = qr_data.strip()
-            print(f"Inventory Number detectado: {inventory_number}")
+            messagebox.showinfo("Información", f"Inventory Number detectado: {inventory_number}")
         else:
-            print("No se detectó ningún código QR.")
+            messagebox.showerror("Error", "No se detectó ningún código QR.")
             return
     else:
-        inventory_number = input("Ingrese el número de inventario o activo: ").strip()
+        inventory_number = simpledialog.askstring("Input", "Ingrese el número de inventario o activo: ").strip()
 
     df = pd.read_excel(ruta_excel_consumibles)
     df.columns = df.columns.str.strip()  # Asegurar que no haya espacios en los nombres de columnas
@@ -1144,7 +1152,7 @@ def quitar_consumible():
     filtro = df[df["Inventory/Asset Number"].astype(str).str.lower() == inventory_number.lower()]
 
     if filtro.empty:
-        print(f"No se encontró el consumible con Inventory Number '{inventory_number}' en el archivo Excel.")
+        messagebox.showerror("Error", f"No se encontró el consumible con Inventory Number '{inventory_number}' en el archivo Excel.")
         return
 
     # Obtener datos existentes del consumible
@@ -1152,26 +1160,26 @@ def quitar_consumible():
     location = filtro.iloc[0]["Location"]
     stock_actual = int(filtro.iloc[0]["Stock Target"])
 
-    cantidad = int(input(f"Ingrese la cantidad a retirar (Stock actual: {stock_actual}): "))
+    cantidad = int(simpledialog.askstring("Input", f"Ingrese la cantidad a retirar (Stock actual: {stock_actual}): "))
 
     if stock_actual < cantidad:
-        print("No se puede retirar más cantidad de la que hay en stock.")
+        messagebox.showerror("Error", "No se puede retirar más cantidad de la que hay en stock.")
         return
 
     nuevo_stock = stock_actual - cantidad
 
     session_token = obtener_token_sesion()
     if not session_token:
-        print("No se pudo obtener el token de sesión.")
+        messagebox.showerror("Error", "No se pudo obtener el token de sesión.")
         return
 
     consumible_id = obtener_id_consumible(session_token, nombre_consumible, inventory_number)
     if not consumible_id:
-        print(f"No se encontró el consumible '{nombre_consumible}' en GLPI.")
+        messagebox.showerror("Error", f"No se encontró el consumible '{nombre_consumible}' en GLPI.")
         return
 
     actualizar_stock_glpi(session_token, consumible_id, nuevo_stock)
-    print(f"Consumible '{nombre_consumible}' actualizado a {nuevo_stock} unidades en stock.")
+    messagebox.showinfo("Información", f"Consumible '{nombre_consumible}' actualizado a {nuevo_stock} unidades en stock.")
 
     # Actualizar en Excel
     actualizar_excel_consumible(nombre_consumible, inventory_number, location, nuevo_stock)
@@ -1205,7 +1213,7 @@ def actualizar_excel_consumible(nombre, inventory_number, location, stock):
         df = pd.concat([df, nuevo_consumible], ignore_index=True)
 
     df.to_excel(ruta_excel_consumibles, index=False)
-    print(f"El consumible '{nombre}' ha sido registrado/actualizado en el Excel.")
+    messagebox.showinfo("Información", f"El consumible '{nombre}' ha sido registrado/actualizado en el Excel.")
 
 def crear_consumible(session_token, nombre, inventory_number, location, stock_target):
     headers = {
@@ -1227,14 +1235,14 @@ def crear_consumible(session_token, nombre, inventory_number, location, stock_ta
 
     if response.status_code == 201:
         consumible_id = response.json().get("id")
-        print(f"Consumible '{nombre}' creado exitosamente con ID {consumible_id}.")
+        messagebox.showinfo("Información", f"Consumible '{nombre}' creado exitosamente con ID {consumible_id}.")
         return consumible_id
     else:
-        print(f"Error al crear el consumible: {response.status_code}")
+        messagebox.showerror("Error", f"Error al crear el consumible: {response.status_code}")
         try:
-            print(response.json())
+            messagebox.showerror("Error", response.json())
         except json.JSONDecodeError:
-            print(response.text)
+            messagebox.showerror("Error", response.text)
         return None
 
 def obtener_id_consumible(session_token, nombre_consumible, inventory_number):
@@ -1262,7 +1270,7 @@ def obtener_id_consumible(session_token, nombre_consumible, inventory_number):
             if consumible_name == nombre_consumible.strip().lower() and consumible_serial == inventory_number_str:
                 return consumible["id"]
 
-    print(f"No se encontró el consumible con nombre '{nombre_consumible}' y número de inventario '{inventory_number}' en GLPI.")
+    messagebox.showinfo("Información", f"No se encontró el consumible con nombre '{nombre_consumible}' y número de inventario '{inventory_number}' en GLPI.")
     return None
 
 def obtener_stock_actual(session_token, consumible_id):
@@ -1277,7 +1285,7 @@ def obtener_stock_actual(session_token, consumible_id):
     if response.status_code == 200:
         return int(response.json().get("stock_target", 0))
     else:
-        print(f"Error al obtener el stock del consumible ID {consumible_id}: {response.status_code}")
+        messagebox.showerror("Error", f"Error al obtener el stock del consumible ID {consumible_id}: {response.status_code}")
         return 0
 
 def actualizar_stock_glpi(session_token, consumible_id, nuevo_stock):
@@ -1297,79 +1305,42 @@ def actualizar_stock_glpi(session_token, consumible_id, nuevo_stock):
     response = requests.put(f"{GLPI_URL}/ConsumableItem/{consumible_id}", headers=headers, json=payload, verify=False)
 
     if response.status_code == 200:
-        print(f"Stock del consumible ID {consumible_id} actualizado correctamente a {nuevo_stock}.")
+        messagebox.showinfo("Información", f"Stock del consumible ID {consumible_id} actualizado correctamente a {nuevo_stock}.")
     else:
-        print(f"Error al actualizar el stock en GLPI: {response.status_code}")
+        messagebox.showerror("Error", f"Error al actualizar el stock en GLPI: {response.status_code}")
         try:
-            print(response.json())
+            messagebox.showerror("Error", response.json())
         except json.JSONDecodeError:
-            print(response.text)
+            messagebox.showerror("Error", response.text)
 
-# Agregar la opción en el menú principal
-def main():
-    while True:
-        print("\n--- Menú de opciones ---")
-        print("Seleccione una opción:")
-        
-        print("\n----- Laptops -----")
-        print("0. Escanear QR y registrar cualquier laptop (Dell/Mac), !Me siento con suerte!")
-        print("1. Escanear QR y registrar en Excel (Template Default)")
-        print("2. Escanear QR y registrar laptops Dell")
-        print("3. Escanear QR y registrar laptops Mac")
-        print("4. Entregar laptop a un usuario")
+def salir():
+    root.destroy()
 
-        print("\n----- Monitores -----")
+root = tk.Tk()
+root.title("GLPI Asset Automator")
 
-        print("5. Escanear QR y registrar monitores")
-        print("6. Entregar monitor a un usuario")
+frame = tk.Frame(root)
+frame.pack(padx=10, pady=10)
 
-        print("\n----- Consumibles -----")
-        print ("7. Agregar consumible")
-        print ("8. Quitar consumible")
+tk.Label(frame, text="----- Laptops -----").pack()
+tk.Button(frame, text="Escanear QR y registrar cualquier laptop (Dell/Mac), ¡Me siento con suerte!", command=manejar_qr_laptop).pack()
+tk.Button(frame, text="Escanear QR y registrar en Excel (Template Default)", command=lambda: agregar_a_excel(parse_qr_data(escanear_qr_con_celular()))).pack()
+tk.Button(frame, text="Escanear QR y registrar laptops Dell", command=manejar_qr_dell).pack()
+tk.Button(frame, text="Escanear QR y registrar laptops Mac", command=manejar_qr_mac).pack()
+tk.Button(frame, text="Entregar laptop a un usuario", command=entregar_laptop).pack()
 
-        print("\n----- Network equipment -----")
+tk.Label(frame, text="----- Monitores -----").pack()
+tk.Button(frame, text="Escanear QR y registrar monitores", command=manejar_qr_monitor).pack()
+tk.Button(frame, text="Entregar monitor a un usuario", command=entregar_monitor).pack()
 
-        print("\n----- Excel -----")
-        print("9. Registrar la última fila del Excel en GLPI")
-        print("10. Registrar un activo por nombre")
-        print("11. Registrar todos los activos de Excel en GLPI")
-        print("12. Salir")
-        
-        opcion = input("Seleccione una opción: ").strip()
-        
-        if opcion == "0":
-            manejar_qr_laptop()
-        elif opcion == "1":
-            codigo = escanear_qr_con_celular()
-            if codigo:
-                asset_data = parse_qr_data(codigo)
-                agregar_a_excel(asset_data)
-        elif opcion == "2":
-            manejar_qr_dell()
-        elif opcion == "3":
-            manejar_qr_mac()
-        elif opcion == "4":
-            entregar_laptop()
-        elif opcion == "5":
-            manejar_qr_monitor()
-        elif opcion == "6":
-            entregar_monitor()
-        elif opcion == "7":
-            agregar_consumible()
-        elif opcion == "8":
-            quitar_consumible()
-        elif opcion == "9":
-            registrar_ultima_fila()
-        elif opcion == "10":
-            registrar_por_nombre()
-        elif opcion == "11":
-            procesar_archivo_excel(ruta_excel)
-        elif opcion == "12":
-            print("Saliendo del programa...")
-            break
-        else:
-            print("Opción no válida. Intente nuevamente.")
+tk.Label(frame, text="----- Consumibles -----").pack()
+tk.Button(frame, text="Agregar consumible", command=agregar_consumible).pack()
+tk.Button(frame, text="Quitar consumible", command=quitar_consumible).pack()
 
+tk.Label(frame, text="----- Excel -----").pack()
+tk.Button(frame, text="Registrar la última fila del Excel en GLPI", command=registrar_ultima_fila).pack()
+tk.Button(frame, text="Registrar un activo por nombre", command=registrar_por_nombre).pack()
+tk.Button(frame, text="Registrar todos los activos de Excel en GLPI", command=procesar_archivo_excel(ruta_excel)).pack()
+tk.Button(frame, text="Salir", command=salir).pack()
 
-if __name__ == "__main__":
-    main()
+root.mainloop()
