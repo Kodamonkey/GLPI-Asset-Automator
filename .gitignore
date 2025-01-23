@@ -3,3 +3,11 @@
 *.pyc
 __pycache__/
 Inventario Rittal_SCO y OSF_16 Nov 2021.xlsx
+libiconv.dll
+libzbar-64.dll
+Excel-tests.xlsx
+consumibles.xlsx
+Templates/
+dist/
+build/
+interface.spec

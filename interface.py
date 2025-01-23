@@ -1340,7 +1340,7 @@ tk.Button(frame, text="Quitar consumible", command=quitar_consumible).pack()
 tk.Label(frame, text="----- Excel -----").pack()
 tk.Button(frame, text="Registrar la última fila del Excel en GLPI", command=registrar_ultima_fila).pack()
 tk.Button(frame, text="Registrar un activo por nombre", command=registrar_por_nombre).pack()
-tk.Button(frame, text="Registrar todos los activos de Excel en GLPI", command=procesar_archivo_excel(ruta_excel)).pack()
+tk.Button(frame, text="Registrar todos los activos de Excel en GLPI", command=lambda: procesar_archivo_excel(ruta_excel)).pack()
 tk.Button(frame, text="Salir", command=salir).pack()
 
 root.mainloop()
