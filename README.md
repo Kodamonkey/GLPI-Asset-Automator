@@ -36,8 +36,6 @@ Password SQL: glpi_password
 
 Luego elegir la base de datos existente: glpi
 
-![1737324268611](image/README/1737324268611.png)
-
 Usuario: glpi
 
 Contraseña: glpi
