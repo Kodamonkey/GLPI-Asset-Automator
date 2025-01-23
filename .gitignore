@@ -15,8 +15,6 @@ libzbar-64.dll
 
 Templates/
 
-dist/
-
-build/
-
 interface.spec
+
+tests/
