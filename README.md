@@ -56,13 +56,13 @@ Contraseña: glpi
 
 # Crear ejecutable
 
-Para crear el ejecutable basta con el comando:
+Para crear el ejecutable basta con ejecutar el comando desde la carpeta del proyecto:
 
 ```
-pyinstaller --onefile --add-data ".env;." --add-data "C:/Users/sebastian.salgado/Desktop/GLPI-Asset-Automator/Excel-tests.xlsx;." --add-data "C:/Users/sebastian.salgado/Desktop/GLPI-Asset-Automator/consumibles.xlsx;." interface.py
-```
+pyinstaller --onefile --noconsole --add-data ".env;." --add-data "activos.xlsx;." --add-data "consumibles.xlsx;." --add-binary "libzbar-64.dll;." --add-binary "libiconv.dll;."  --hidden-import pyzbar.pyzbar --hidden-import pyzbar.zbar_library glpi_automator.py
 
-En caso de errores, relacionados a pyzbar, basta con agregar:
+```
+En caso de errores, relacionados a pyzbar, basta con agregar en la carpeta del proyecto:
 
 libiconv.dll
 
@@ -70,10 +70,4 @@ libzbar-64.dll
 
 Y luego ejecutar:
 
-```
-pyinstaller --onefile --add-data ".env;." --add-data "C:/Users/sebastian.salgado/Desktop/GLPI-Asset-Automator/Excel-tests.xlsx;." --add-data "C:/Users/sebastian.salgado/Desktop/GLPI-Asset-Automator/consumibles.xlsx;." --add-binary "libiconv.dll;." interface.py
-```
 
-```
-pyinstaller --onefile --add-data ".env;." --add-data "C:/Users/sebastian.salgado/Desktop/GLPI-Asset-Automator/Excel-tests.xlsx;." --add-data "C:/Users/sebastian.salgado/Desktop/GLPI-Asset-Automator/consumibles.xlsx;." --add-binary "libzbar-64.dll;." interface.py
-```
