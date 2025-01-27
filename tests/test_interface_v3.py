@@ -1,6 +1,6 @@
 import unittest
 from unittest.mock import patch, MagicMock
-from interface_v3 import GLPIApp
+from scripts.interface_v3 import GLPIApp
 import pandas as pd
 
 class TestGLPIApp(unittest.TestCase):

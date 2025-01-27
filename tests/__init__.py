@@ -1,5 +1,5 @@
 import unittest
-from interface_v3 import *
+from scripts.interface_v3 import *
 
 class TestInterfaceV3(unittest.TestCase):
     def test_functionality_one(self):

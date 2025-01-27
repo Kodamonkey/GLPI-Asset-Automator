@@ -1,7 +1,7 @@
 # ----- Librerias ------
 
 import tkinter as tk
-from tkinter import messagebox, simpledialog, ttk
+from tkinter import messagebox, simpledialog, ttk, Toplevel, Label, Button
 import pandas as pd
 import cv2  # Para la captura de QR
 from pyzbar.pyzbar import decode  # Decodificar QR
@@ -14,7 +14,7 @@ import re
 import numpy as np
 import threading
 import queue
-from openpyxl import load_workbook
+from openpyxl import load_workbook, Workbook
 
 # ---------- Configuraciones -------------
 
@@ -57,7 +57,10 @@ class GLPIApp:
         self.style.theme_use("clam")  # Puedes cambiar el tema a "clam", "alt", "default", "classic"
         self.configure_styles()
         self.create_widgets()
+        res = self.comprobar_cambios_glpi()
+        self.iniciar_app(res)  # Llamar a la función para comprobar cambios al iniciar la aplicación
         
+
     def configure_styles(self):
         # Estilo del marco
         self.style.configure("TFrame", background="#E0F7FA")
@@ -128,7 +131,8 @@ class GLPIApp:
         ttk.Button(frames["Excel/GLPI"], text="Registrar la última fila del Excel en GLPI", command=self.registrar_ultima_fila).grid(row=1, column=0, padx=10, pady=5)
         ttk.Button(frames["Excel/GLPI"], text="Registrar un activo por nombre", command=self.registrar_por_nombre).grid(row=2, column=0, padx=10, pady=5)
         ttk.Button(frames["Excel/GLPI"], text="Registrar todos los activos de Excel en GLPI", command=lambda: self.procesar_archivo_excel(ruta_excel)).grid(row=3, column=0, padx=10, pady=5)
-        ttk.Button(frames["Excel/GLPI"], text="Salir", command=self.root.quit).grid(row=4, column=0, padx=10, pady=5)
+        #ttk.Button(frames["Excel/GLPI"], text="Warning: Extraer TODOS Datos de GLPI a Excel", command= self.extraer_datos_glpi_a_excel).grid(row=4, column=0, padx=10, pady=5)
+        ttk.Button(frames["Excel/GLPI"], text="Salir", command=self.root.quit).grid(row=5, column=0, padx=10, pady=5)
 
     def center_widgets(self, frame):
         # Configurar la columna 0 del frame para centrar elementos
@@ -148,7 +152,7 @@ class GLPIApp:
         else:
             messagebox.showerror("Error", f"Error al iniciar sesión: {response.status_code}")
             return None
-        
+
     def verificar_existencia_asset(self, session_token, serial_number, asset_type="Computer"):
         headers = {
             "Content-Type": "application/json",
@@ -618,6 +622,282 @@ class GLPIApp:
 
             messagebox.showinfo("Información", f"Procesando fila {index + 1}: {asset_data} como {asset_type}")
             self.registrar_asset(session_token, asset_data, asset_type)
+    
+    def extraer_datos_glpi_a_excel(self):
+        session_token = self.obtener_token_sesion()
+        if not session_token:
+            messagebox.showerror("Error", "No se pudo obtener el token de sesión.")
+            return
+
+        headers = {
+            "Content-Type": "application/json",
+            "Session-Token": session_token,
+            "App-Token": APP_TOKEN
+        }
+
+        endpoints = {
+            "Computer": "Computer",
+            "Monitor": "Monitor",
+            "Consumables": "ConsumableItem"
+        }
+
+        if os.path.exists(ruta_excel):
+            wb = load_workbook(ruta_excel)
+        else:
+            wb = Workbook()
+
+        sobrescribir_todo = False
+        omitir_todo = False
+
+        for asset_type, endpoint in endpoints.items():
+            all_data = []
+            start = 0
+            while True:
+                params = {
+                    "range": f"{start}-{start + 999}"
+                }
+                response = requests.get(f"{GLPI_URL}/{endpoint}", headers=headers, params=params, verify=False)
+                if response.status_code == 200:
+                    data = response.json()
+                    if not data:
+                        break
+                    all_data.extend(data)
+                    start += 1000
+                elif response.status_code == 400 and 'ERROR_RANGE_EXCEED_TOTAL' in response.text:
+                    try:
+                        error_message = response.json()
+                        total_count_str = error_message[1].split(": ")[1].split(";")[0]
+                        total_count = int(total_count_str)
+                    except (IndexError, ValueError, KeyError) as e:
+                        messagebox.showerror("Error", f"Error al procesar la respuesta de la API: {str(e)}")
+                        return
+                    if start >= total_count:
+                        break
+                    params = {
+                        "range": f"{start}-{total_count - 1}"
+                    }
+                    response = requests.get(f"{GLPI_URL}/{endpoint}", headers=headers, params=params, verify=False)
+                    if response.status_code == 200:
+                        data = response.json()
+                        all_data.extend(data)
+                        break
+                    else:
+                        try:
+                            error_message = response.json()
+                        except json.JSONDecodeError:
+                            error_message = response.text
+                        messagebox.showerror("Error", f"Error al obtener datos de {asset_type}: {response.status_code}\n{error_message}")
+                        return
+                else:
+                    try:
+                        error_message = response.json()
+                    except json.JSONDecodeError:
+                        error_message = response.text
+                    messagebox.showerror("Error", f"Error al obtener datos de {asset_type}: {response.status_code}\n{error_message}")
+                    return
+
+            if not all_data:
+                messagebox.showinfo("Información", f"No se encontraron datos para {asset_type}.")
+                continue
+
+            if asset_type not in wb.sheetnames:
+                ws = wb.create_sheet(title=asset_type)
+                excel_headers = ["id", "entities_id", "name", "serial", "otherserial", "contact", "contact_num", "users_id_tech", "groups_id_tech", "comment", "date_mod", "autoupdatesystems_id", "locations_id", "networks_id", "computermodels_id", "computertypes_id", "is_template", "template_name", "manufacturers_id", "is_deleted", "is_dynamic", "users_id", "groups_id", "states_id", "ticket_tco", "uuid", "date_creation", "is_recursive", "last_inventory_update", "last_boot"]
+                ws.append(excel_headers)
+            else:
+                ws = wb[asset_type]
+                if all_data:
+                    excel_headers = ["id", "entities_id", "name", "serial", "otherserial", "contact", "contact_num", "users_id_tech", "groups_id_tech", "comment", "date_mod", "autoupdatesystems_id", "locations_id", "networks_id", "computermodels_id", "computertypes_id", "is_template", "template_name", "manufacturers_id", "is_deleted", "is_dynamic", "users_id", "groups_id", "states_id", "ticket_tco", "uuid", "date_creation", "is_recursive", "last_inventory_update", "last_boot"]
+                else:
+                    messagebox.showinfo("Información", f"No se encontraron datos para {asset_type}.")
+                    continue
+
+            existing_serials = {row[3] for row in ws.iter_rows(min_row=2, values_only=True) if len(row) > 3}
+            existing_names = {row[2] for row in ws.iter_rows(min_row=2, values_only=True) if len(row) > 2}
+
+            for item in all_data:
+                serial_number = item.get("serial", "")
+                name = item.get("name", "")
+                if serial_number not in existing_serials and name not in existing_names:
+                    row = [self.limpiar_valor(item.get(header, "")) for header in excel_headers]
+                    ws.append(row)
+                else:
+                    if sobrescribir_todo:
+                        for excel_row in ws.iter_rows(min_row=2):
+                            if (len(excel_row) > 3 and excel_row[3] == serial_number) or (len(excel_row) > 2 and excel_row[2] == name):
+                                for idx, header in enumerate(excel_headers):
+                                    if idx < len(excel_row):
+                                        excel_row[idx].value = self.limpiar_valor(item.get(header, ""))
+                    elif not omitir_todo:
+                        respuesta = self.custom_askyesnocancel(f"El número de serie {serial_number} o el nombre {name} ya existe. ¿Desea sobrescribir los datos existentes con los datos de GLPI?")
+                        if respuesta == "cancel":
+                            return
+                        elif respuesta == "yes":
+                            for excel_row in ws.iter_rows(min_row=2):
+                                if (len(excel_row) > 3 and excel_row[3] == serial_number) or (len(excel_row) > 2 and excel_row[2] == name):
+                                    for idx, header in enumerate(excel_headers):
+                                        if idx < len(excel_row):
+                                            excel_row[idx].value = self.limpiar_valor(item.get(header, ""))
+                        elif respuesta == "all":
+                            sobrescribir_todo = True
+                            for excel_row in ws.iter_rows(min_row=2):
+                                if (len(excel_row) > 3 and excel_row[3] == serial_number) or (len(excel_row) > 2 and excel_row[2] == name):
+                                    for idx, header in enumerate(excel_headers):
+                                        if idx < len(excel_row):
+                                            excel_row[idx].value = self.limpiar_valor(item.get(header, ""))
+                        elif respuesta == "none":
+                            omitir_todo = True
+
+        wb.save(ruta_excel)
+        messagebox.showinfo("Información", "Datos extraídos y guardados en el archivo Excel.")
+
+    def iniciar_app(self, res):
+        # Comprobar cambios en los endpoints de GLPI
+        if res:
+            # Preguntar al usuario si desea actualizar el archivo Excel
+            respuesta = messagebox.askyesno("Confirmación", "Se detectaron cambios en los datos de GLPI. ¿Desea actualizar el archivo Excel?")
+            if respuesta:
+                self.extraer_datos_glpi_a_excel()
+
+    def comprobar_cambios_glpi(self):
+        session_token = self.obtener_token_sesion()
+        if not session_token:
+            messagebox.showerror("Error", "No se pudo obtener el token de sesión.")
+            return False
+
+        headers = {
+            "Content-Type": "application/json",
+            "Session-Token": session_token,
+            "App-Token": APP_TOKEN
+        }
+
+        endpoints = {
+            "Computer": "Computer",
+            "Monitor": "Monitor",
+            "Consumables": "ConsumableItem"
+        }
+
+        if not os.path.exists(ruta_excel):
+            messagebox.showinfo("Información", "El archivo Excel no existe. Se crearán nuevos datos.")
+            return True  # Si el archivo Excel no existe, se consideran cambios detectados
+
+        wb = load_workbook(ruta_excel)
+        cambios_detectados = False
+
+        for asset_type, endpoint in endpoints.items():
+            response = requests.get(f"{GLPI_URL}/{endpoint}", headers=headers, verify=False)
+            if response.status_code == 200:
+                data = response.json()
+                if not data:
+                    continue
+
+                if asset_type in wb.sheetnames:
+                    ws = wb[asset_type]
+                    existing_data = {row[3]: row for row in ws.iter_rows(min_row=2, values_only=True) if len(row) > 3}
+                    for item in data:
+                        serial_number = item.get("serial", "")
+                        name = item.get("name", "")
+                        if serial_number in existing_data:
+                            existing_row = existing_data[serial_number]
+                            for idx, header in enumerate(ws[1], start=1):
+                                excel_value = existing_row[idx-1]
+                                glpi_value = self.limpiar_valor(item.get(header.value, ""))
+                                if excel_value != glpi_value:
+                                    cambios_detectados = True
+                                    break
+                        elif name in existing_data:
+                            existing_row = existing_data[name]
+                            for idx, header in enumerate(ws[1], start=1):
+                                excel_value = existing_row[idx-1]
+                                glpi_value = self.limpiar_valor(item.get(header.value, ""))
+                                if excel_value != glpi_value:
+                                    cambios_detectados = True
+                                    break
+                        else:
+                            cambios_detectados = True
+                            break
+                else:
+                    cambios_detectados = True
+
+            if cambios_detectados:
+                respuesta = messagebox.askyesnocancel("Confirmación", f"Se detectaron cambios en los datos de {asset_type}. ¿Desea agregar o sobrescribir los datos en el archivo Excel?")
+                if respuesta is None:
+                    return False  # Cancelar la operación
+                elif respuesta:
+                    self.actualizar_excel_con_cambios(data, asset_type)
+                    return True
+                else:
+                    return False
+
+        if not cambios_detectados:
+            messagebox.showinfo("Información", "Los datos están al día.")
+        return cambios_detectados
+
+    def actualizar_excel_con_cambios(self, data, asset_type):
+        if not os.path.exists(ruta_excel):
+            wb = Workbook()
+        else:
+            wb = load_workbook(ruta_excel)
+
+        if asset_type not in wb.sheetnames:
+            ws = wb.create_sheet(title=asset_type)
+            excel_headers = ["id", "entities_id", "name", "serial", "otherserial", "contact", "contact_num", "users_id_tech", "groups_id_tech", "comment", "date_mod", "autoupdatesystems_id", "locations_id", "networks_id", "computermodels_id", "computertypes_id", "is_template", "template_name", "manufacturers_id", "is_deleted", "is_dynamic", "users_id", "groups_id", "states_id", "ticket_tco", "uuid", "date_creation", "is_recursive", "last_inventory_update", "last_boot"]
+            ws.append(excel_headers)
+        else:
+            ws = wb[asset_type]
+
+        existing_serials = {row[3] for row in ws.iter_rows(min_row=2, values_only=True) if len(row) > 3}
+        existing_names = {row[2] for row in ws.iter_rows(min_row=2, values_only=True) if len(row) > 2}
+
+        for item in data:
+            serial_number = item.get("serial", "")
+            name = item.get("name", "")
+            if serial_number not in existing_serials and name not in existing_names:
+                row = [self.limpiar_valor(item.get(header.value, "")) for header in ws[1]]
+                ws.append(row)
+            else:
+                respuesta = self.custom_askyesnocancel(f"El número de serie {serial_number} o el nombre {name} ya existe. ¿Desea sobrescribir los datos existentes con los datos de GLPI?")
+                if respuesta == "cancel":
+                    return
+                elif respuesta == "yes":
+                    for excel_row in ws.iter_rows(min_row=2):
+                        if (len(excel_row) > 3 and excel_row[3] == serial_number) or (len(excel_row) > 2 and excel_row[2] == name):
+                            for idx, header in enumerate(ws[1]):
+                                if idx < len(excel_row):
+                                    excel_row[idx].value = self.limpiar_valor(item.get(header.value, ""))
+
+        wb.save(ruta_excel)
+        messagebox.showinfo("Información", "Datos actualizados en el archivo Excel.")
+        
+    def limpiar_valor(self, valor):
+        if isinstance(valor, list):
+            return ", ".join(str(v) for v in valor)
+        elif isinstance(valor, dict):
+            return json.dumps(valor)
+        return valor
+
+    def custom_askyesnocancel(self, message):
+        dialog = Toplevel(self.root)
+        dialog.title("Confirmación")
+        Label(dialog, text=message, padx=20, pady=20).pack()
+
+        response = {"value": "cancel"}
+
+        def set_response(value):
+            response["value"] = value
+            dialog.destroy()
+
+        Button(dialog, text="Sí", command=lambda: set_response("yes")).pack(side="left", padx=10, pady=10)
+        Button(dialog, text="No", command=lambda: set_response("no")).pack(side="left", padx=10, pady=10)
+        Button(dialog, text="Sobrescribir todo", command=lambda: set_response("all")).pack(side="left", padx=10, pady=10)
+        Button(dialog, text="Omitir todo", command=lambda: set_response("none")).pack(side="left", padx=10, pady=10)
+        Button(dialog, text="Cancelar", command=lambda: set_response("cancel")).pack(side="left", padx=10, pady=10)
+
+        dialog.transient(self.root)
+        dialog.grab_set()
+        self.root.wait_window(dialog)
+
+        return response["value"]
 
     def salir(self):
         root.destroy()   
