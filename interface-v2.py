@@ -12,6 +12,7 @@ from dotenv import load_dotenv
 import urllib3
 import re
 import numpy as np
+import threading
 
 # ---------- Configuraciones -------------
 
@@ -25,9 +26,9 @@ load_dotenv()
 GLPI_URL = os.getenv("GLPI_URL")
 USER_TOKEN = os.getenv("USER_TOKEN")
 APP_TOKEN = os.getenv("APP_TOKEN")
-PATH_EXCEL_ACTIVOS = os.getenv("PATH_EXCEL_HOME_ACTIVOS")
-PATH_EXCEL_CONSUMIBLES = os.getenv("PATH_EXCEL_HOME_CONSUMIBLES")
-IP_CAM_URL = os.getenv("IP_CAM_URL_HOME")
+PATH_EXCEL_ACTIVOS = os.getenv("PATH_EXCEL_ACTIVOS")
+PATH_EXCEL_CONSUMIBLES = os.getenv("PATH_EXCEL_CONSUMIBLES")
+IP_CAM_URL = os.getenv("IP_CAM_URL")
 
 # Ruta del archivo Excel
 ruta_excel = PATH_EXCEL_ACTIVOS
@@ -80,7 +81,7 @@ class GLPIApp:
     # ------- Funciones -----------
     # ----- Excel y configs. ------
     
-    def obtener_token_sesion():
+    def obtener_token_sesion(self):
         headers = {
             "Authorization": f"user_token {USER_TOKEN}",
             "App-Token": APP_TOKEN,
@@ -92,42 +93,42 @@ class GLPIApp:
             messagebox.showerror("Error", f"Error al iniciar sesión: {response.status_code}")
             return None
         
-    def verificar_existencia_asset(session_token, serial_number, asset_type="Computer"):
-            headers = {
-                "Content-Type": "application/json",
-                "Session-Token": session_token,
-                "App-Token": APP_TOKEN
-            }
+    def verificar_existencia_asset(self, session_token, serial_number, asset_type="Computer"):
+        headers = {
+            "Content-Type": "application/json",
+            "Session-Token": session_token,
+            "App-Token": APP_TOKEN
+        }
 
-            # Definir los endpoints válidos para diferentes tipos de activos
-            endpoints = {
-                "Computer": "Computer",
-                "Monitor": "Monitor",
-                "Network Equipment": "NetworkEquipment",
-                "Consumables": "ConsumableItem",
-            }
+        # Definir los endpoints válidos para diferentes tipos de activos
+        endpoints = {
+            "Computer": "Computer",
+            "Monitor": "Monitor",
+            "Network Equipment": "NetworkEquipment",
+            "Consumables": "ConsumableItem",
+        }
 
-            endpoint = endpoints.get(asset_type, "Computer")
+        endpoint = endpoints.get(asset_type, "Computer")
 
-            params = {"searchText": serial_number, "range": "0-999"}
-            response = requests.get(f"{GLPI_URL}/search/{endpoint}", headers=headers, params=params, verify=False)
+        params = {"searchText": serial_number, "range": "0-999"}
+        response = requests.get(f"{GLPI_URL}/search/{endpoint}", headers=headers, params=params, verify=False)
 
-            if response.status_code == 200:
-                assets = response.json().get("data", [])
-                for asset in assets:
-                    if asset.get('5', '').strip() == serial_number:
-                        messagebox.showinfo("Información", f"El activo con número de serie '{serial_number}' ya existe en GLPI con ID: {asset.get('1')}")
-                        return True
-            else:
-                messagebox.showerror("Error", f"Error al verificar existencia del activo: {response.status_code}")
-                try:
-                    messagebox.showerror("Error", response.json())
-                except json.JSONDecodeError:
-                    messagebox.showerror("Error", response.text)
-            
-            return False  
+        if response.status_code == 200:
+            assets = response.json().get("data", [])
+            for asset in assets:
+                if asset.get('5', '').strip() == serial_number:
+                    messagebox.showinfo("Información", f"El activo con número de serie '{serial_number}' ya existe en GLPI con ID: {asset.get('1')}")
+                    return True
+        else:
+            messagebox.showerror("Error", f"Error al verificar existencia del activo: {response.status_code}")
+            try:
+                messagebox.showerror("Error", response.json())
+            except json.JSONDecodeError:
+                messagebox.showerror("Error", response.text)
+        
+        return False  
     
-    def verificar_existencia_en_excel(serial_number):
+    def verificar_existencia_en_excel(self, serial_number):
         df = pd.read_excel(ruta_excel)
         if serial_number in df["Serial Number"].values:
             messagebox.showinfo("Información", f"El activo con número de serie '{serial_number}' ya existe en el Excel.")
@@ -282,7 +283,7 @@ class GLPIApp:
 
         self.registrar_asset(session_token, asset_data, row["Asset Type"])
 
-    def obtener_location_id(session_token, location_name):
+    def obtener_location_id(self, session_token, location_name):
         headers = {
             "Content-Type": "application/json",
             "Session-Token": session_token,
@@ -299,7 +300,7 @@ class GLPIApp:
                     return location["id"]
         return None
 
-    def obtener_manufacturer_id(session_token, manufacturer_name):
+    def obtener_manufacturer_id(self, session_token, manufacturer_name):
         headers = {
             "Content-Type": "application/json",
             "Session-Token": session_token,
@@ -316,7 +317,7 @@ class GLPIApp:
                     return manufacturer["id"]
         return None
 
-    def parse_qr_data_template(qr_string):
+    def parse_qr_data_template(self, qr_string):
         asset_data = {}
         for line in qr_string.split("\n"):
             key, value = line.split(": ", 1)
@@ -325,14 +326,15 @@ class GLPIApp:
 
     def escanear_qr_con_celular(self):
         ip_cam_url = IP_CAM_URL  # Cambiar por la URL de la cámara IP
+        camera_open = True
 
-        while True:
+        while camera_open:
             try:
                 cap = cv2.VideoCapture(ip_cam_url)
                 if not cap.isOpened():
                     messagebox.showerror("Error", "No se pudo acceder a la cámara del celular. Reintentalo...")
                     cap.release()
-                    cv2.destroyAllWindows() 
+                    cv2.destroyAllWindows()
                     cv2.waitKey(5000)  # Esperar 5 segundos antes de reintentar
                     continue
 
@@ -372,6 +374,14 @@ class GLPIApp:
                     cv2.imshow("Escaneando QR con celular", frame)
 
                     if cv2.waitKey(1) & 0xFF == ord('q'):
+                        camera_open = False
+                        cap.release()
+                        cv2.destroyAllWindows()
+                        return None
+
+                    # Verificar si la ventana fue cerrada
+                    if cv2.getWindowProperty("Escaneando QR con celular", cv2.WND_PROP_VISIBLE) < 1:
+                        camera_open = False
                         cap.release()
                         cv2.destroyAllWindows()
                         return None
@@ -382,7 +392,7 @@ class GLPIApp:
                 messagebox.showerror("Error", f"Se produjo un error inesperado: {str(e)}")
                 break
 
-    def es_codigo_valido(qr_data, flag):
+    def es_codigo_valido(self, qr_data):
         # lógica para determinar si un código QR es válido
         # verificar si el código QR coincide con ciertos patrones
         patrones_validos = [
@@ -429,7 +439,8 @@ class GLPIApp:
             r'^S?(C02|FVX)[A-Z0-9]{8,10}$',  # Soporta opcional 'S' delante del serial
 
             # MacBook Air/Pro: Formato reciente con 12 caracteres alfanuméricos
-            r'^[A-Z0-9]{12}$',  # Ejemplo: W8P6W5T5YV3C
+            r'^[A-Z0-9]{10}$',  # Ejemplo: W8P6W5T5YV3
+            r'^[A-Z0-9]{11}$',  # Ejemplo: W8P6W5T5YV3C
         ]
         
         patron_valido_monitor = [
@@ -454,10 +465,10 @@ class GLPIApp:
         for patron in patron_valido_monitor:
             if re.match(patron, qr_data):
                 return "monitor"
-
+        
         return "invalido"
 
-    def limpiar_asset_data(asset_data):
+    def limpiar_asset_data(self, asset_data):
         cleaned_data = {}
         for key, value in asset_data.items():
             if isinstance(value, float) and np.isnan(value):
@@ -530,7 +541,7 @@ class GLPIApp:
             messagebox.showinfo("Información", f"Procesando fila {index + 1}: {asset_data} como {asset_type}")
             self.registrar_asset(session_token, asset_data, asset_type)
 
-    def salir():
+    def salir(self):
         root.destroy()   
 
     # ---- Consumibles ------
@@ -549,8 +560,11 @@ class GLPIApp:
             else:
                 messagebox.showerror("Error", "No se detectó ningún código QR.")
                 return
-        else:
+        elif metodo == "manual":
             inventory_number = simpledialog.askstring("Input", "Ingrese el número de inventario o activo: ").strip()
+        else:
+            messagebox.showerror("Error", " f{metodo} no es un metodo valido.")
+
 
         df = pd.read_excel(ruta_excel_consumibles)
         df.columns = df.columns.str.strip()  # Asegura que no haya espacios en los nombres de columnas
@@ -678,7 +692,7 @@ class GLPIApp:
                 messagebox.showerror("Error", response.text)
             return None
 
-    def obtener_id_consumible(session_token, nombre_consumible, inventory_number):
+    def obtener_id_consumible(self, session_token, nombre_consumible, inventory_number):
         headers = {
             "Content-Type": "application/json",
             "Session-Token": session_token,
@@ -706,7 +720,7 @@ class GLPIApp:
         messagebox.showinfo("Información", f"No se encontró el consumible con nombre '{nombre_consumible}' y número de inventario '{inventory_number}' en GLPI.")
         return None
 
-    def obtener_stock_actual(session_token, consumible_id):
+    def obtener_stock_actual(self, session_token, consumible_id):
         headers = {
             "Content-Type": "application/json",
             "Session-Token": session_token,
@@ -721,7 +735,7 @@ class GLPIApp:
             messagebox.showerror("Error", f"Error al obtener el stock del consumible ID {consumible_id}: {response.status_code}")
             return 0
 
-    def actualizar_stock_glpi(session_token, consumible_id, nuevo_stock):
+    def actualizar_stock_glpi(self, session_token, consumible_id, nuevo_stock):
         headers = {
             "Content-Type": "application/json",
             "Session-Token": session_token,
@@ -746,7 +760,7 @@ class GLPIApp:
             except json.JSONDecodeError:
                 messagebox.showerror("Error", response.text)
 
-    def actualizar_excel_consumible(nombre, inventory_number, location, stock):
+    def actualizar_excel_consumible(self, nombre, inventory_number, location, stock):
         df = pd.read_excel(ruta_excel_consumibles)
         df.columns = df.columns.str.strip()  # Asegura nombres sin espacios extra
 
@@ -804,7 +818,7 @@ class GLPIApp:
         else:
             messagebox.showerror("Error", "No se detectó ningún código QR.")
 
-    def procesar_qr_monitor(qr_data):
+    def procesar_qr_monitor(self, qr_data):
         # Plantilla para monitores
         plantilla_monitor = {
             "Asset Type": "Monitor",
@@ -944,7 +958,7 @@ class GLPIApp:
             except json.JSONDecodeError:
                 messagebox.showerror("Error", response.text)
 
-    def obtener_id_por_nombre_monitor(session_token, asset_name):
+    def obtener_id_por_nombre_monitor(self, session_token, asset_name):
         headers = {
             "Content-Type": "application/json",
             "Session-Token": session_token,
@@ -1003,7 +1017,7 @@ class GLPIApp:
 
     ## ----- Laptops -------
 
-    def procesar_qr_laptop(flag, qr_data):
+    def procesar_qr_laptop(self, flag, qr_data):
         if flag == "Dell":
             # Plantilla de la laptop Dell Latitude
             plantilla_dell = {
@@ -1053,7 +1067,7 @@ class GLPIApp:
 
             return plantilla_mac
 
-    def guardar_plantilla_txt(asset_data, nombre_archivo):
+    def guardar_plantilla_txt(self, asset_data, nombre_archivo):
         with open(nombre_archivo, 'w') as file:
             for key, value in asset_data.items():
                 file.write(f"{key}: {value}\n")
@@ -1325,7 +1339,7 @@ class GLPIApp:
             messagebox.showerror("Error", f"Error al buscar el activo en GLPI: {response.status_code}")
             return None
 
-    def obtener_id_por_nombre(session_token, asset_name):
+    def obtener_id_por_nombre(self, session_token, asset_name):
         headers = {
             "Content-Type": "application/json",
             "Session-Token": session_token,
@@ -1395,7 +1409,7 @@ class GLPIApp:
             except json.JSONDecodeError:
                 messagebox.showerror("Error", response.text)
 
-    def obtener_user_id(session_token, username):
+    def obtener_user_id(self, session_token, username):
         headers = {
             "Content-Type": "application/json",
             "Session-Token": session_token,

@@ -1,7 +1,8 @@
 pandas
 opencv-python
 pyzbar
-python-dotenv
 requests
+python-dotenv
+urllib3
 numpy
 openpyxl

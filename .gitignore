@@ -17,4 +17,6 @@ Templates/
 
 interface.spec
 
-tests/
+dist/
+
+build/
