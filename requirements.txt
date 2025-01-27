@@ -1,0 +1,7 @@
+pandas
+opencv-python
+pyzbar
+python-dotenv
+requests
+numpy
+openpyxl
