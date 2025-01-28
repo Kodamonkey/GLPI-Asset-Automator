@@ -15,7 +15,6 @@ import numpy as np
 import threading
 import queue
 from openpyxl import load_workbook, Workbook
-from openpyxl.utils.dataframe import dataframe_to_rows
 
 # ---------- Configuraciones -------------
 
@@ -35,52 +34,17 @@ IP_CAM_URL = os.getenv("IP_CAM_URL")
 
 # Ruta del archivo Excel
 ruta_excel = PATH_EXCEL_ACTIVOS
+ruta_excel_consumibles = PATH_EXCEL_CONSUMIBLES
 
 # Crear archivo Excel si no existe
-def crear_archivo_excel_con_hojas(ruta, hojas):
+def crear_archivo_excel(ruta, columnas):
     if not os.path.exists(ruta):
-        wb = Workbook()
-        for hoja in hojas:
-            ws = wb.create_sheet(title=hoja)
-            excel_headers = [
-                "id", "asset_type", "entities_id", "name", "serial", "otherserial", "contact", "contact_num", 
-                "users_id_tech", "groups_id_tech", "comment", "date_mod", "autoupdatesystems_id", 
-                "locations_id", "networks_id", "computermodels_id", "computertypes_id", "is_template", 
-                "template_name", "manufacturers_id", "is_deleted", "is_dynamic", "users_id", "groups_id", 
-                "states_id", "ticket_tco", "uuid", "date_creation", "is_recursive","stock_target", "last_inventory_update", 
-                "last_boot", "type", "model", "asset_tag", "purchase_date", "warranty_expiration_date", 
-                "status", "location", "department", "ip_address", "mac_address", "operating_system", 
-                "processor", "ram", "storage", "last_user", "supplier", "purchase_price", "order_number", 
-                "invoice_number"
-            ]
-            ws.append(excel_headers)
-        # Eliminar la hoja por defecto creada por Workbook
-        if 'Sheet' in wb.sheetnames:
-            del wb['Sheet']
-        wb.save(ruta)
+        df = pd.DataFrame(columns=columnas)
+        df.to_excel(ruta, index=False)
 
-def crear_hoja_excel(wb, asset_type):
-    if asset_type not in wb.sheetnames:
-        ws = wb.create_sheet(title=asset_type)
-        excel_headers = [
-            "id", "asset_type", "entities_id", "name", "serial", "otherserial", "contact", "contact_num", 
-            "users_id_tech", "groups_id_tech", "comment", "date_mod", "autoupdatesystems_id", 
-            "locations_id", "networks_id", "computermodels_id", "computertypes_id", "is_template", 
-            "template_name", "manufacturers_id", "is_deleted", "is_dynamic", "users_id", "groups_id", 
-            "states_id", "ticket_tco", "uuid", "date_creation", "is_recursive","stock_target", "last_inventory_update", 
-            "last_boot", "type", "model", "asset_tag", "purchase_date", "warranty_expiration_date", 
-            "status", "location", "department", "ip_address", "mac_address", "operating_system", 
-            "processor", "ram", "storage", "last_user", "supplier", "purchase_price", "order_number", 
-            "invoice_number"
-        ]
-        ws.append(excel_headers)
-    else:
-        ws = wb[asset_type]
-        excel_headers = [cell.value for cell in ws[1]]
-    return ws, excel_headers
-
-# Crear el archivo Excel con las hojas "Computer", "Monitor" y "Consumables" si no existe
-crear_archivo_excel_con_hojas(ruta_excel, ["Computer", "Monitor", "Consumables"])
+crear_archivo_excel(ruta_excel, ["Asset Type", "Name", "Location", "Manufacturer", "Model", "Serial Number", 
+                                 "Inventory Number", "Comments", "Technician in Charge", "Group in Charge", "Status", "Specific Fields (Dynamic Column)"])
+crear_archivo_excel(ruta_excel_consumibles, ["Name", "Inventory/Asset Number", "Location", "Stock Target"])
 
 class GLPIApp:
     # ---- Configs. iniciales ----
@@ -93,7 +57,6 @@ class GLPIApp:
         self.style.theme_use("clam")  # Puedes cambiar el tema a "clam", "alt", "default", "classic"
         self.configure_styles()
         self.create_widgets()
-        self.actualizar_excel_al_iniciar()
         
     def configure_styles(self):
         # Estilo del marco
@@ -116,6 +79,8 @@ class GLPIApp:
         self.style.map("Rounded.TButton",
                     background=[("active", "#0277BD")],  # Cambio de color al pasar el mouse
                     relief=[("pressed", "groove")])  # Suaviza el clic en el botón
+
+
 
     def create_widgets(self):
         # Menú
@@ -145,7 +110,7 @@ class GLPIApp:
 
         # Laptops
         ttk.Label(frames["Laptops"], text="Laptops", style="Header.TLabel").grid(row=0, column=0, pady=10)
-        ttk.Button(frames["Laptops"], text="Escanear QR y registrar laptop (Dell/Mac)", command=self.registrar_laptop).grid(row=1, column=0, padx=10, pady=5)
+        ttk.Button(frames["Laptops"], text="Escanear QR y registrar laptop (Dell/Mac)", command=lambda: self.manejar_qr_laptop("Register")).grid(row=1, column=0, padx=10, pady=5)
         ttk.Button(frames["Laptops"], text="Entregar laptop a un usuario", command=self.entregar_laptop).grid(row=2, column=0, padx=10, pady=5)
 
         # Monitores
@@ -184,32 +149,6 @@ class GLPIApp:
         else:
             messagebox.showerror("Error", f"Error al iniciar sesión: {response.status_code}")
             return None
-    
-    def guardar_plantilla_txt(self, asset_data, nombre_archivo):
-        with open(nombre_archivo, 'w') as file:
-            for key, value in asset_data.items():
-                file.write(f"{key}: {value}\n")
-        messagebox.showinfo("Información", f"Plantilla guardada en {nombre_archivo}")
-
-    def crear_hoja_excel(self, wb, asset_type):
-        if asset_type not in wb.sheetnames:
-            ws = wb.create_sheet(title=asset_type)
-            excel_headers = [
-            "id", "asset_type", "entities_id", "name", "serial", "otherserial", "contact", "contact_num", 
-            "users_id_tech", "groups_id_tech", "comment", "date_mod", "autoupdatesystems_id", 
-            "locations_id", "networks_id", "computermodels_id", "computertypes_id", "is_template", 
-            "template_name", "manufacturers_id", "is_deleted", "is_dynamic", "users_id", "groups_id", 
-            "states_id", "ticket_tco", "uuid", "date_creation", "is_recursive","stock_target", "last_inventory_update", 
-            "last_boot", "type", "model", "asset_tag", "purchase_date", "warranty_expiration_date", 
-            "status", "location", "department", "ip_address", "mac_address", "operating_system", 
-            "processor", "ram", "storage", "last_user", "supplier", "purchase_price", "order_number", 
-            "invoice_number"
-        ]
-            ws.append(excel_headers)
-        else:
-            ws = wb[asset_type]
-            excel_headers = [cell.value for cell in ws[1]]
-        return ws, excel_headers
 
     def verificar_existencia_asset(self, session_token, serial_number, asset_type="Computer"):
         headers = {
@@ -245,172 +184,44 @@ class GLPIApp:
                 messagebox.showerror("Error", response.text)
         
         return False  
-
+    
     def verificar_existencia_en_excel(self, serial_number):
         wb = load_workbook(ruta_excel)
-        for sheet in wb.sheetnames:
-            ws = wb[sheet]
-            for row in ws.iter_rows(min_row=2, values_only=True):
-                if row[3] == serial_number:  # Asumiendo que la columna "Serial Number" es la cuarta
-                    messagebox.showinfo("Información", f"El activo con número de serie '{serial_number}' ya existe en la hoja '{sheet}' del Excel.")
-                    return True
+        ws = wb.active
+        for row in ws.iter_rows(min_row=2, values_only=True):
+            if row[5] == serial_number:  # Asumiendo que la columna "Serial Number" es la sexta
+                messagebox.showinfo("Información", f"El activo con número de serie '{serial_number}' ya existe en el Excel.")
+                return True
         return False
 
-    def agregar_a_excel(self, asset_data, sheet_name):
+    def agregar_a_excel(self, asset_data):
         try:
-            # Verificar que todas las columnas esperadas estén presentes en asset_data
-            columnas_esperadas = [
-                "id", "asset_type", "entities_id", "name", "serial", "otherserial", "contact", "contact_num", 
-                "users_id_tech", "groups_id_tech", "comment", "date_mod", "autoupdatesystems_id", 
-                "locations_id", "networks_id", "computermodels_id", "computertypes_id", "is_template", 
-                "template_name", "manufacturers_id", "is_deleted", "is_dynamic", "users_id", "groups_id", 
-                "states_id", "ticket_tco", "uuid", "date_creation", "is_recursive","stock_target", "last_inventory_update", 
-                "last_boot", "type", "model", "asset_tag", "purchase_date", "warranty_expiration_date", 
-                "status", "location", "department", "ip_address", "mac_address", "operating_system", 
-                "processor", "ram", "storage", "last_user", "supplier", "purchase_price", "order_number", 
-                "invoice_number"
-            ]
+            df = pd.read_excel(ruta_excel)
 
-            for columna in columnas_esperadas:
-                if columna not in asset_data:
-                    asset_data[columna] = ""  # Rellenar con cadena vacía si falta alguna columna
+            if self.verificar_existencia_en_excel(asset_data["Serial Number"]):
+                messagebox.showinfo("Información", f"El activo con serial '{asset_data['Serial Number']}' ya está registrado en el Excel. No se agregará.")
+                return
 
-            # Cargar el archivo Excel existente
-            wb = load_workbook(ruta_excel)
-            
-            # Verificar si la hoja existe, si no, crearla
-            if sheet_name not in wb.sheetnames:
-                ws = wb.create_sheet(title=sheet_name)
-                ws.append(columnas_esperadas)
-            else:
-                ws = wb[sheet_name]
-
-            # Convertir la hoja a un DataFrame
-            df = pd.DataFrame(ws.values)
-            df.columns = df.iloc[0]  # Establecer la primera fila como encabezados
-            df = df[1:]  # Eliminar la primera fila de encabezados
-
-            #if self.verificar_existencia_en_excel(asset_data["serial"]):
-            #   messagebox.showinfo("Información", f"El activo con serial '{asset_data['serial']}' ya está registrado en el Excel. No se agregará.")
-            #    return
-
-            # Agregar el nuevo registro al DataFrame
-            nuevo_registro = pd.DataFrame([asset_data])
-            df = pd.concat([df, nuevo_registro], ignore_index=True)
-
-            # Escribir el DataFrame de vuelta a la hoja
-            for r_idx, row in df.iterrows():
-                for c_idx, value in enumerate(row):
-                    ws.cell(row=r_idx + 2, column=c_idx + 1, value=value)
-
-            # Guardar el archivo Excel
-            wb.save(ruta_excel)
+            nuevo_registro = pd.DataFrame([asset_data])  # Convertir el asset_data a un DataFrame de una fila
+            df = pd.concat([df, nuevo_registro], ignore_index=True)  # Agregar la nueva fila al DataFrame existente
+            df.to_excel(ruta_excel, index=False)  # Guardar el DataFrame actualizado en el Excel
             messagebox.showinfo("Éxito", "Datos registrados exitosamente en el Excel.")
-            return
 
             # Guardar la plantilla en un archivo .txt
-            #nombre_archivo_txt = f"C:/Users/sebastian.salgado/Desktop/GLPI-Asset-Automator/Templates/{asset_data['name']}.txt"
-            #self.guardar_plantilla_txt(asset_data, nombre_archivo_txt)
+            nombre_archivo_txt = f"C:/Users/sebastian.salgado/Desktop/GLPI-Asset-Automator/Templates/{asset_data['Name']}.txt"
+            self.guardar_plantilla_txt(asset_data, nombre_archivo_txt)
 
             # Preguntar si se desea registrar en GLPI
-            #registrar_glpi = simpledialog.askstring("Registrar en GLPI", "¿Deseas registrar este activo en GLPI? (sí/no):").strip().lower()
-            #if registrar_glpi == "sí" or registrar_glpi == "si":
-            #    self.registrar_ultima_fila(sheet_name)
-            #else:
-            #    messagebox.showinfo("Información", "El activo no fue registrado en GLPI.")
+            registrar_glpi = simpledialog.askstring("Registrar en GLPI", "¿Deseas registrar este activo en GLPI? (sí/no):").strip().lower()
+            if registrar_glpi == "sí" or registrar_glpi == "si":
+                self.registrar_ultima_fila()
+            else:
+                messagebox.showinfo("Información", "El activo no fue registrado en GLPI.")
         except Exception as e:
             messagebox.showerror("Error", f"Error al guardar los datos: {e}")
 
-    def procesar_archivo_excel(self, ruta_archivo):
-        try:
-            df = pd.read_excel(ruta_archivo, skiprows=0)
-            df.columns = df.columns.str.strip()
-        except Exception as e:
-            messagebox.showerror("Error", f"No se pudo leer el archivo Excel: {str(e)}")
-            return
-
-        columnas_necesarias = [
-            "id", "asset_type", "entities_id", "name", "serial", "otherserial", "contact", "contact_num", 
-            "users_id_tech", "groups_id_tech", "comment", "date_mod", "autoupdatesystems_id", 
-            "locations_id", "networks_id", "computermodels_id", "computertypes_id", "is_template", 
-            "template_name", "manufacturers_id", "is_deleted", "is_dynamic", "users_id", "groups_id", 
-            "states_id", "ticket_tco", "uuid", "date_creation", "is_recursive","stock_target", "last_inventory_update", 
-            "last_boot", "type", "model", "asset_tag", "purchase_date", "warranty_expiration_date", 
-            "status", "location", "department", "ip_address", "mac_address", "operating_system", 
-            "processor", "ram", "storage", "last_user", "supplier", "purchase_price", "order_number", 
-            "invoice_number"
-        ]
-
-        for columna in columnas_necesarias:
-            if columna not in df.columns:
-                messagebox.showerror("Error", f"La columna '{columna}' no existe en el archivo Excel.")
-                return
-
-        df = df.fillna("").astype(str)
-
-        session_token = self.obtener_token_sesion()
-        if not session_token:
-            messagebox.showerror("Error", "No se pudo obtener el token de sesión.")
-            return
-
-        # Mapeo para normalizar los tipos de assets
-        asset_type_mapping = {
-            "computer": "Computer",
-            "network equipment": "Network Equipment",
-            "consumables": "Consumables",
-            "monitor": "Monitor"
-        }
-
-        for index, row in df.iterrows():
-            try:
-                asset_type = row["Asset Type"].strip().lower()
-                asset_type = asset_type_mapping.get(asset_type, None)
-
-                if not asset_type:
-                    messagebox.showerror("Error", f"Tipo de asset desconocido: '{row['Asset Type']}' (Fila {index + 1}). Se omite esta fila.")
-                    continue  # Saltar la fila si el tipo de asset no es válido
-
-                # Obtener location_id
-                location_id = self.obtener_location_id(session_token, row["location"].strip())
-                if location_id is None:
-                    messagebox.showerror("Error", f"No se pudo encontrar la ubicación: {row['location']} (Fila {index + 1})")
-                    continue  # Saltar la fila si no se encuentra la ubicación
-
-                # Obtener manufacturer_id
-                manufacturer_id = self.obtener_manufacturer_id(session_token, row["manufacturers_id"].strip())
-                if manufacturer_id is None:
-                    messagebox.showerror("Error", f"No se pudo encontrar el fabricante: {row['manufacturers_id']} (Fila {index + 1})")
-                    continue  # Saltar la fila si no se encuentra el fabricante
-
-                asset_data = {
-                    "name": row["name"].strip(),
-                    "locations_id": location_id, 
-                    "manufacturers_id": manufacturer_id,
-                    "serial": row["serial"].strip(),
-                    "comments": row["comment"].strip(),
-                }
-
-                messagebox.showinfo("Información", f"Procesando fila {index + 1}: {asset_data} como {asset_type}")
-                self.registrar_asset(session_token, asset_data, asset_type)
-            except Exception as e:
-                messagebox.showerror("Error", f"Error al procesar la fila {index + 1}: {str(e)}")
-                continue  # Continuar con la siguiente fila en caso de error
-
-        messagebox.showinfo("Información", "Procesamiento del archivo Excel completado.")
-
-    def limpiar_asset_data(self, asset_data):
-        cleaned_data = {}
-        for key, value in asset_data.items():
-            if isinstance(value, float) and np.isnan(value):
-                cleaned_data[key] = ""
-            elif value is None:
-                cleaned_data[key] = ""
-            else:
-                cleaned_data[key] = str(value).strip()
-        return cleaned_data
-
     def registrar_asset(self, session_token, asset_data, asset_type):
-        if self.verificar_existencia_asset(session_token, asset_data["serial"], asset_type):
+        if self.verificar_existencia_asset( session_token, asset_data["serial"]):
             messagebox.showinfo("Información", f"El activo con número de serie {asset_data['serial']} ya existe en GLPI. No se realizará el registro.")
             return
 
@@ -444,8 +255,8 @@ class GLPIApp:
             except json.JSONDecodeError:
                 messagebox.showerror("Error", response.text)
 
-    def registrar_ultima_fila(self, asset_type):
-        df = pd.read_excel(ruta_excel, sheet_name=asset_type)
+    def registrar_ultima_fila(self):
+        df = pd.read_excel(ruta_excel)
         if df.empty:
             messagebox.showerror("Error", "El archivo Excel está vacío.")
             return
@@ -461,31 +272,31 @@ class GLPIApp:
             messagebox.showerror("Error", "No se pudo obtener el token de sesión.")
             return
 
-        if "name" not in last_row or "Asset Type" not in last_row:
+        if "Name" not in last_row or "Asset Type" not in last_row:
             messagebox.showerror("Error", "La última fila no contiene las columnas esperadas.")
             return
 
-        location_id = self.obtener_location_id(session_token, last_row["location"])
+        location_id = self.obtener_location_id(session_token, last_row["Location"])
         if not location_id:
-            messagebox.showerror("Error", f"No se pudo encontrar la ubicación: {last_row['location']}")
+            messagebox.showerror("Error", f"No se pudo encontrar la ubicación: {last_row['Location']}")
             return
 
-        manufacturer_id = self.obtener_manufacturer_id(session_token, last_row["manufacturers_id"])
+        manufacturer_id = self.obtener_manufacturer_id(session_token, last_row["Manufacturer"])
         if not manufacturer_id:
-            messagebox.showerror("Error", f"No se pudo encontrar el fabricante: {last_row['manufacturers_id']}")
+            messagebox.showerror("Error", f"No se pudo encontrar el fabricante: {last_row['Manufacturer']}")
             return
 
         if location_id is None or manufacturer_id is None:
-            messagebox.showerror("Error", f"No se pudo encontrar la ubicación o el fabricante para el activo '{last_row['name']}'")
+            messagebox.showerror("Error", f"No se pudo encontrar la ubicación o el fabricante para el activo '{last_row['Name']}'")
             return
 
         # Preparar los datos para el registro en GLPI
         asset_data = {
-            "name": last_row["name"].strip(),
+            "name": last_row["Name"].strip(),
             "locations_id": location_id,
             "manufacturers_id": manufacturer_id,
-            "serial": last_row["serial"].strip(),
-            "comments": last_row["comment"].strip() if last_row["comment"] else "N/A",
+            "serial": last_row["Serial Number"].strip(),
+            "comments": last_row["Comments"].strip() if last_row["Comments"] else "N/A",
         }
 
         messagebox.showinfo("Información", f"Registrando asset: {asset_data}")
@@ -503,7 +314,7 @@ class GLPIApp:
             messagebox.showerror("Error", "No se ingresó un nombre válido.")
             return
 
-        filtro = df[df["name"].str.lower() == nombre.lower()]
+        filtro = df[df["Name"].str.lower() == nombre.lower()]
 
         if filtro.empty:
             messagebox.showerror("Error", f"No se encontró el activo con el nombre '{nombre}' en el archivo Excel.")
@@ -512,20 +323,21 @@ class GLPIApp:
         row = filtro.iloc[0].to_dict()
         session_token = self.obtener_token_sesion()
 
-        location_id = self.obtener_location_id(session_token, row["location"])
-        manufacturer_id = self.obtener_manufacturer_id(session_token, row["manufacturers_id"])
+        location_id = self.obtener_location_id(session_token, row["Location"])
+        manufacturer_id = self.obtener_manufacturer_id(session_token, row["Manufacturer"])
 
         if location_id is None or manufacturer_id is None:
-            messagebox.showerror("Error", f"No se pudo encontrar la ubicación o el fabricante para el activo '{row['name']}'")
+            messagebox.showerror("Error", f"No se pudo encontrar la ubicación o el fabricante para el activo '{row['Name']}'")
             return
 
         # Preparar los datos para el registro en GLPI
         asset_data = {
-            "name": row["name"].strip(),
+            "name": row["Name"].strip(),
             "locations_id": location_id,
             "manufacturers_id": manufacturer_id,
-            "serial": row["serial"].strip(),
-            "comments": row["comment"].strip(),
+            "serial": row["Serial Number"].strip(),
+            #"otherserial": row["Inventory Number"].strip(),
+            "comments": row["Comments"].strip(),
         }
 
         self.registrar_asset(session_token, asset_data, row["Asset Type"])
@@ -570,6 +382,7 @@ class GLPIApp:
             key, value = line.split(": ", 1)
             asset_data[key.strip()] = value.strip().replace('"', '')
         return asset_data
+
 
     def escanear_qr_con_celular(self):
         try:
@@ -738,6 +551,87 @@ class GLPIApp:
         
         return "invalido"
 
+    def limpiar_asset_data(self, asset_data):
+        cleaned_data = {}
+        for key, value in asset_data.items():
+            if isinstance(value, float) and np.isnan(value):
+                cleaned_data[key] = ""
+            elif value is None:
+                cleaned_data[key] = ""
+            else:
+                cleaned_data[key] = str(value).strip()
+        return cleaned_data
+
+    def procesar_archivo_excel(self, ruta_archivo):
+        try:
+            df = pd.read_excel(ruta_archivo, skiprows=0)
+            df.columns = df.columns.str.strip()
+        except Exception as e:
+            messagebox.showerror("Error", f"No se pudo leer el archivo Excel: {str(e)}")
+            return
+
+        columnas_necesarias = [
+            "Asset Type", "Name", "Location", "Manufacturer", "Model", "Serial Number", 
+            "Inventory Number", "Comments", "Technician in Charge", 
+            "Group in Charge", "Status", "Specific Fields (Dynamic Column)"
+        ]
+
+        for columna in columnas_necesarias:
+            if columna not in df.columns:
+                messagebox.showerror("Error", f"La columna '{columna}' no existe en el archivo Excel.")
+                return
+
+        df = df.fillna("").astype(str)
+
+        session_token = self.obtener_token_sesion()
+        if not session_token:
+            messagebox.showerror("Error", "No se pudo obtener el token de sesión.")
+            return
+
+        # Mapeo para normalizar los tipos de assets
+        asset_type_mapping = {
+            "computer": "Computer",
+            "network equipment": "Network Equipment",
+            "consumables": "Consumables",
+        }
+
+        for index, row in df.iterrows():
+            try:
+                asset_type = row["Asset Type"].strip().lower()
+                asset_type = asset_type_mapping.get(asset_type, None)
+
+                if not asset_type:
+                    messagebox.showerror("Error", f"Tipo de asset desconocido: '{row['Asset Type']}' (Fila {index + 1}). Se omite esta fila.")
+                    continue  # Saltar la fila si el tipo de asset no es válido
+
+                # Obtener location_id
+                location_id = self.obtener_location_id(session_token, row["Location"].strip())
+                if location_id is None:
+                    messagebox.showerror("Error", f"No se pudo encontrar la ubicación: {row['Location']} (Fila {index + 1})")
+                    continue  # Saltar la fila si no se encuentra la ubicación
+
+                # Obtener manufacturer_id
+                manufacturer_id = self.obtener_manufacturer_id(session_token, row["Manufacturer"].strip())
+                if manufacturer_id is None:
+                    messagebox.showerror("Error", f"No se pudo encontrar el fabricante: {row['Manufacturer']} (Fila {index + 1})")
+                    continue  # Saltar la fila si no se encuentra el fabricante
+
+                asset_data = {
+                    "name": row["Name"].strip(),
+                    "locations_id": location_id, 
+                    "manufacturers_id": manufacturer_id,
+                    "serial": row["Serial Number"].strip(),
+                    "comments": row["Comments"].strip(),
+                }
+
+                messagebox.showinfo("Información", f"Procesando fila {index + 1}: {asset_data} como {asset_type}")
+                self.registrar_asset(session_token, asset_data, asset_type)
+            except Exception as e:
+                messagebox.showerror("Error", f"Error al procesar la fila {index + 1}: {str(e)}")
+                continue  # Continuar con la siguiente fila en caso de error
+
+        messagebox.showinfo("Información", "Procesamiento del archivo Excel completado.")
+
     def extraer_datos_glpi_a_excel(self):
         try:
             session_token = self.obtener_token_sesion()
@@ -813,22 +707,25 @@ class GLPIApp:
                     messagebox.showinfo("Información", f"No se encontraron datos para {asset_type}.")
                     continue
 
-                ws, excel_headers = self.crear_hoja_excel(wb, asset_type)
+                if asset_type not in wb.sheetnames:
+                    ws = wb.create_sheet(title=asset_type)
+                    excel_headers = [
+                        "id", "entities_id", "name", "serial", "otherserial", "contact", "contact_num", 
+                        "users_id_tech", "groups_id_tech", "comment", "date_mod", "autoupdatesystems_id", 
+                        "locations_id", "networks_id", "computermodels_id", "computertypes_id", "is_template", 
+                        "template_name", "manufacturers_id", "is_deleted", "is_dynamic", "users_id", "groups_id", 
+                        "states_id", "ticket_tco", "uuid", "date_creation", "is_recursive", "last_inventory_update", 
+                        "last_boot", "type", "model", "asset_tag", "purchase_date", "warranty_expiration_date", 
+                        "status", "location", "department", "ip_address", "mac_address", "operating_system", 
+                        "processor", "ram", "storage", "last_user", "supplier", "purchase_price", "order_number", 
+                        "invoice_number"
+                    ]
+                    ws.append(excel_headers)
+                else:
+                    ws = wb[asset_type]
+                    excel_headers = [cell.value for cell in ws[1]]
 
                 existing_data = {row[3]: list(row) for row in ws.iter_rows(min_row=2, values_only=True) if len(row) > 3}
-
-                # Crear un conjunto de números de serie obtenidos de GLPI
-                glpi_serial_numbers = {item.get("serial", "") for item in all_data}
-
-                # Eliminar filas en Excel que ya no existen en GLPI
-                rows_to_delete = []
-                for row_idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
-                    serial_number = row[3]
-                    if serial_number not in glpi_serial_numbers:
-                        rows_to_delete.append(row_idx)
-
-                for row_idx in reversed(rows_to_delete):
-                    ws.delete_rows(row_idx)
 
                 for item in all_data:
                     serial_number = item.get("serial", "")
@@ -847,12 +744,12 @@ class GLPIApp:
                             if len(cambios) == 1:
                                 campo, valor_excel, valor_glpi = cambios[0]
                                 respuesta = messagebox.askyesnocancel("Confirmación", f"El campo '{campo}' ha cambiado de '{valor_excel}' a '{valor_glpi}'. ¿Desea sobrescribir este cambio?")
-                            else:
-                                campos_cambiados = ", ".join([c[0] for c in cambios])
-                                respuesta = messagebox.askyesnocancel("Confirmación", f"Los siguientes campos han cambiado: {campos_cambiados}. ¿Desea sobrescribir estos cambios?")
+                            #else:
+                            #    campos_cambiados = ", ".join([c[0] for c in cambios])
+                            #    respuesta = messagebox.askyesnocancel("Confirmación", f"Los siguientes campos han cambiado: {campos_cambiados}. ¿Desea sobrescribir estos cambios?")
                             
                             if respuesta is None:
-                                messagebox.showinfo("Información", "Operación cancelada por el usuario.")
+                                messagebox.showinfo("Información", "Estas al dia!")
                                 return  # Cancelar la operación
                             elif respuesta:
                                 for idx, header in enumerate(excel_headers):
@@ -872,6 +769,14 @@ class GLPIApp:
         except Exception as e:
             messagebox.showerror("Error", f"Se produjo un error inesperado: {str(e)}")
     
+    def iniciar_app(self, res):
+        # Comprobar cambios en los endpoints de GLPI
+        if res:
+            # Preguntar al usuario si desea actualizar el archivo Excel
+            respuesta = messagebox.askyesno("Confirmación", "Se detectaron cambios en los datos de GLPI. ¿Desea actualizar el archivo Excel?")
+            if respuesta:
+                self.extraer_datos_glpi_a_excel()
+        
     def limpiar_valor(self, valor):
         if isinstance(valor, list):
             return ", ".join(str(v) for v in valor)
@@ -905,158 +810,10 @@ class GLPIApp:
     def salir(self):
         root.destroy()   
 
-    def actualizar_excel_al_iniciar(self):
-        try:
-            respuesta = messagebox.askyesno("Actualizar Excel", "¿Deseas actualizar el archivo Excel con los datos de GLPI?")
-            if not respuesta:
-                return
-
-            session_token = self.obtener_token_sesion()
-            if not session_token:
-                messagebox.showerror("Error", "No se pudo obtener el token de sesión.")
-                return
-
-            headers = {
-                "Content-Type": "application/json",
-                "Session-Token": session_token,
-                "App-Token": APP_TOKEN
-            }
-
-            endpoints = {
-                "Computer": "Computer",
-                "Monitor": "Monitor",
-                "Consumables": "ConsumableItem"
-            }
-
-            if os.path.exists(ruta_excel):
-                wb = load_workbook(ruta_excel)
-            else:
-                wb = Workbook()
-
-            for asset_type, endpoint in endpoints.items():
-                all_data = []
-                start = 0
-                while True:
-                    params = {
-                        "range": f"{start}-{start + 999}"
-                    }
-                    response = requests.get(f"{GLPI_URL}/{endpoint}", headers=headers, params=params, verify=False)
-                    if response.status_code == 200:
-                        data = response.json()
-                        if not data:
-                            break
-                        all_data.extend(data)
-                        start += 1000
-                    elif response.status_code == 400 and 'ERROR_RANGE_EXCEED_TOTAL' in response.text:
-                        try:
-                            error_message = response.json()
-                            total_count_str = error_message[1].split(": ")[1].split(";")[0]
-                            total_count = int(total_count_str)
-                        except (IndexError, ValueError, KeyError) as e:
-                            messagebox.showerror("Error", f"Error al procesar la respuesta de la API: {str(e)}")
-                            return
-                        if start >= total_count:
-                            break
-                        params = {
-                            "range": f"{start}-{total_count - 1}"
-                        }
-                        response = requests.get(f"{GLPI_URL}/{endpoint}", headers=headers, params=params, verify=False)
-                        if response.status_code == 200:
-                            data = response.json()
-                            all_data.extend(data)
-                            break
-                        else:
-                            try:
-                                error_message = response.json()
-                            except json.JSONDecodeError:
-                                error_message = response.text
-                            messagebox.showerror("Error", f"Error al obtener datos de {asset_type}: {response.status_code}\n{error_message}")
-                            return
-                    else:
-                        try:
-                            error_message = response.json()
-                        except json.JSONDecodeError:
-                            error_message = response.text
-                        messagebox.showerror("Error", f"Error al obtener datos de {asset_type}: {response.status_code}\n{error_message}")
-                        return
-
-                if not all_data:
-                    messagebox.showinfo("Información", f"No se encontraron datos para {asset_type}.")
-                    continue
-
-                ws, excel_headers = self.crear_hoja_excel(wb, asset_type)
-
-                existing_data = {row[3]: list(row) for row in ws.iter_rows(min_row=2, values_only=True) if len(row) > 3}
-
-                # Crear un conjunto de números de serie obtenidos de GLPI
-                glpi_serial_numbers = {item.get("serial", "") for item in all_data}
-
-                # Eliminar filas en Excel que ya no existen en GLPI y moverlas al final
-                rows_to_move = []
-                for row in ws.iter_rows(min_row=2, values_only=True):
-                    serial_number = row[3]
-                    if serial_number is None or serial_number not in glpi_serial_numbers:
-                        rows_to_move.append(row)
-
-                for row in rows_to_move:
-                    ws.delete_rows(row[0])
-
-                for item in all_data:
-                    serial_number = item.get("serial", "")
-                    if serial_number in existing_data:
-                        existing_row = existing_data[serial_number]
-                        for idx, header in enumerate(excel_headers):
-                            if idx < len(existing_row):
-                                existing_row[idx] = self.limpiar_valor(item.get(header, ""))
-                        # Actualizar la fila en la hoja de Excel
-                        for col_idx, value in enumerate(existing_row, start=1):
-                            ws.cell(row=existing_row[0], column=col_idx, value=value)
-                    else:
-                        row = [self.limpiar_valor(item.get(header, "")) for header in excel_headers]
-                        ws.append(row)
-
-                # Añadir las filas movidas al final
-                for row in rows_to_move:
-                    ws.append([self.limpiar_valor(cell) for cell in row])
-
-            wb.save(ruta_excel)
-            messagebox.showinfo("Información", "Datos actualizados y guardados en el archivo Excel.")
-        except Exception as e:
-            messagebox.showerror("Error", f"Se produjo un error inesperado: {str(e)}")
-
     # ---- Consumibles ------
-    # Funciones para manejar consumibles
-    def actualizar_excel_consumible(self, nombre, inventory_number, location, stock):
-        if not os.path.exists(ruta_excel):
-            crear_archivo_excel_con_hojas(ruta_excel, ["Consumables"])
 
-        wb = load_workbook(ruta_excel)
-        ws, excel_headers = self.crear_hoja_excel(wb, "Consumables")
-
-        # Convertir inventory_number a string para evitar errores
-        inventory_number_str = str(inventory_number).strip().lower()
-
-        # Verificar si el consumible ya está registrado
-        for row in ws.iter_rows(min_row=2, values_only=False):
-            if row[excel_headers.index("name")].value.lower() == nombre.lower() and row[excel_headers.index("otherserial")].value.lower() == inventory_number_str:
-                row[excel_headers.index("stock_target")].value = stock
-                break
-        else:
-            nuevo_consumible = [
-                None, None, nombre, None, inventory_number_str, None, None, 
-                None, None, None, None, None, 
-                self.obtener_location_id(self.obtener_token_sesion(), location), None, None, None, None, 
-                None, None, None, None, None, None, None, None, None, None, None, None, 
-                None, None, None, None, None, None, None, None, None, None, None, None, 
-                None, None, None, None, None, None, None, None, None, stock
-            ]
-            ws.append(nuevo_consumible)
-
-        wb.save(ruta_excel)
-        messagebox.showinfo("Información", f"El consumible '{nombre}' ha sido registrado/actualizado en el Excel.")
-
-    # Actualizar las funciones agregar_consumible y quitar_consumible para usar el nuevo formato
     def agregar_consumible(self):
+        
         messagebox.showinfo("Información", "--- Agregar Consumible al Stock ---")
 
         metodo = simpledialog.askstring("Input", "¿Desea escanear el QR o ingresar manualmente? (qr/manual): ").strip().lower()
@@ -1075,16 +832,16 @@ class GLPIApp:
             messagebox.showerror("Error", f"{metodo} no es un metodo valido.")
             return
 
-        df = pd.read_excel(ruta_excel, sheet_name="Consumables")
+        df = pd.read_excel(ruta_excel_consumibles)
         df.columns = df.columns.str.strip()  # Asegura que no haya espacios en los nombres de columnas
 
         # Verificar si el consumible ya está registrado en el Excel
-        filtro = df[df["otherserial"].astype(str).str.lower() == inventory_number.lower()]
+        filtro = df[df["Inventory/Asset Number"].astype(str).str.lower() == inventory_number.lower()]
 
         if not filtro.empty:
             messagebox.showinfo("Información", f"Consumible con Inventory Number '{inventory_number}' encontrado en el Excel.")
-            nombre_consumible = filtro.iloc[0]["name"]
-            location = filtro.iloc[0]["location"]
+            nombre_consumible = filtro.iloc[0]["Name"]
+            location = filtro.iloc[0]["Location"]
         else:
             messagebox.showinfo("Información", f"No se encontró un consumible con el número de inventario '{inventory_number}'. Creando nuevo...")
             nombre_consumible = simpledialog.askstring("Input", "Ingrese el nombre del nuevo consumible: ").strip()
@@ -1132,20 +889,20 @@ class GLPIApp:
         else:
             inventory_number = simpledialog.askstring("Input", "Ingrese el número de inventario o activo: ").strip()
 
-        df = pd.read_excel(ruta_excel, sheet_name="Consumables")
+        df = pd.read_excel(ruta_excel_consumibles)
         df.columns = df.columns.str.strip()  # Asegurar que no haya espacios en los nombres de columnas
 
         # Buscar el consumible en el Excel por inventory_number
-        filtro = df[df["otherserial"].astype(str).str.lower() == inventory_number.lower()]
+        filtro = df[df["Inventory/Asset Number"].astype(str).str.lower() == inventory_number.lower()]
 
         if filtro.empty:
             messagebox.showerror("Error", f"No se encontró el consumible con Inventory Number '{inventory_number}' en el archivo Excel.")
             return
 
         # Obtener datos existentes del consumible
-        nombre_consumible = filtro.iloc[0]["name"]
-        location = filtro.iloc[0]["location"]
-        stock_actual = int(filtro.iloc[0]["stock_target"])
+        nombre_consumible = filtro.iloc[0]["Name"]
+        location = filtro.iloc[0]["Location"]
+        stock_actual = int(filtro.iloc[0]["Stock Target"])
 
         cantidad = int(simpledialog.askstring("Input", f"Ingrese la cantidad a retirar (Stock actual: {stock_actual}): "))
 
@@ -1269,39 +1026,46 @@ class GLPIApp:
             except json.JSONDecodeError:
                 messagebox.showerror("Error", response.text)
 
+    def actualizar_excel_consumible(self, nombre, inventory_number, location, stock):
+        df = pd.read_excel(ruta_excel_consumibles)
+        df.columns = df.columns.str.strip()  # Asegura nombres sin espacios extra
+
+        # Convertir inventory_number a string para evitar errores
+        inventory_number_str = str(inventory_number).strip().lower()
+
+        # Verificar si el consumible ya está registrado
+        filtro = df[
+            (df["Name"].str.lower() == nombre.lower()) & 
+            (df["Inventory/Asset Number"].astype(str).str.lower() == inventory_number_str)
+        ]
+
+        if not filtro.empty:
+            df.loc[
+                (df["Name"].str.lower() == nombre.lower()) &
+                (df["Inventory/Asset Number"].astype(str).str.lower() == inventory_number_str), 
+                "Stock Target"
+            ] = stock
+        else:
+            nuevo_consumible = pd.DataFrame([{
+                "Name": nombre,
+                "Inventory/Asset Number": inventory_number_str,  # Convertir a string
+                "Location": location,
+                "Stock Target": stock
+            }])
+            df = pd.concat([df, nuevo_consumible], ignore_index=True)
+
+        df.to_excel(ruta_excel_consumibles, index=False)
+        messagebox.showinfo("Información", f"El consumible '{nombre}' ha sido registrado/actualizado en el Excel.")
+
     # ------ Monitor --------
 
     def manejar_qr_monitor(self):
-        metodo = simpledialog.askstring("Input", "¿Desea escanear el QR o ingresar el número de serie manualmente? (qr/manual): ").strip().lower()
-
-        if metodo == "qr":
-            qr_data = self.escanear_qr_con_celular()
-            if qr_data:
-                if re.match(r'^CN[A-Z0-9]{10}$', qr_data) or re.match(r'^S?[A-Z0-9]{7}$', qr_data) or re.match(r'^(SN|S/N)\s*[A-Z0-9]{7,12}$', qr_data):
-                    messagebox.showinfo("Información", "Monitor detectado. Procesando datos...")
-
-                    serial_number = qr_data.strip()
-
-                    if serial_number:
-                        messagebox.showinfo("Información", f"Serial Number detectado: {serial_number}")
-                        confirmacion = simpledialog.askstring("Confirmación", "¿Es correcto este Serial Number, desea continuar? (sí/no): ").strip().lower()
-                        if confirmacion not in ["sí", "si", "Si", "Sí"]:
-                            messagebox.showinfo("Información", "Operación cancelada por el usuario.")
-                            return
-                        else:
-                            if self.verificar_existencia_en_excel(serial_number):
-                                messagebox.showinfo("Información", f"El activo con serial '{serial_number}' ya está registrado en el Excel. No se agregará.")
-                                return
-                            asset_data = self.procesar_qr_monitor(serial_number)
-                            self.agregar_a_excel(asset_data, "Monitor")
-                else:
-                    messagebox.showerror("Error", "Código QR no corresponde a un monitor.")
-            else:
-                messagebox.showerror("Error", "No se detectó ningún código QR.")
-        elif metodo == "manual":
-            serial_number = simpledialog.askstring("Input", "Ingrese el número de serie del monitor: ").strip()
-            if re.match(r'^CN[A-Z0-9]{10}$', serial_number) or re.match(r'^S?[A-Z0-9]{7}$', serial_number) or re.match(r'^(SN|S/N)\s*[A-Z0-9]{7,12}$', serial_number):
+        qr_data = self.escanear_qr_con_celular()
+        if qr_data:
+            if re.match(r'^CN[A-Z0-9]{10}$', qr_data) or re.match(r'^S?[A-Z0-9]{7}$', qr_data) or re.match(r'^(SN|S/N)\s*[A-Z0-9]{7,12}$', qr_data):
                 messagebox.showinfo("Información", "Monitor detectado. Procesando datos...")
+
+                serial_number = qr_data.strip()
 
                 if serial_number:
                     messagebox.showinfo("Información", f"Serial Number detectado: {serial_number}")
@@ -1314,73 +1078,33 @@ class GLPIApp:
                             messagebox.showinfo("Información", f"El activo con serial '{serial_number}' ya está registrado en el Excel. No se agregará.")
                             return
                         asset_data = self.procesar_qr_monitor(serial_number)
-                        self.agregar_a_excel(asset_data, "Monitor")
+                        self.agregar_a_excel(asset_data)
             else:
-                messagebox.showerror("Error", "El número de serie ingresado no corresponde a un monitor válido.")
+                messagebox.showerror("Error", "Código QR no corresponde a un monitor.")
         else:
-            messagebox.showerror("Error", "Método no válido. Intente nuevamente.")
+            messagebox.showerror("Error", "No se detectó ningún código QR.")
 
     def procesar_qr_monitor(self, qr_data):
         # Plantilla para monitores
         plantilla_monitor = {
-            "asset_type": "Monitor",
-            "name": None,  # Generado automáticamente
-            "locations_id": None,  # Pedir al usuario
-            "manufacturers_id": "Dell Inc.",  # Extraído del QR
-            "serial": qr_data.strip(),  # Código QR escaneado
-            "otherserial": "",
-            "contact": "",
-            "contact_num": "",
-            "users_id_tech": "",
-            "groups_id_tech": "",
-            "comment": "Check",
-            "date_mod": "",
-            "autoupdatesystems_id": "",
-            "networks_id": "",
-            "computermodels_id": "",
-            "computertypes_id": "",
-            "is_template": "",
-            "template_name": "",
-            "is_deleted": "",
-            "is_dynamic": "",
-            "users_id": "",
-            "groups_id": "",
-            "states_id": "",
-            "ticket_tco": "",
-            "uuid": "",
-            "date_creation": "",
-            "is_recursive": "",
-            "stock_target": "",
-            "last_inventory_update": "",
-            "last_boot": "",
-            "type": "",
-            "model": None,  # Extraído del QR
-            "asset_tag": "",
-            "purchase_date": "",
-            "warranty_expiration_date": "",
-            "status": "Stocked",  # Definir un estado predeterminado
-            "location": None,  # Pedir al usuario
-            "department": "",
-            "ip_address": "",
-            "mac_address": "",
-            "operating_system": "",
-            "processor": "",
-            "ram": "",
-            "storage": "",
-            "last_user": "",
-            "supplier": "",
-            "purchase_price": "",
-            "order_number": "",
-            "invoice_number": ""
+            "Asset Type": "Monitor",
+            "Status": "Stocked",  # Definir un estado predeterminado
+            "User": None,  # Pedir al usuario
+            "Name": None,  # Generado automáticamente
+            "Location": None,  # Pedir al usuario
+            "Manufacturer": "Dell Inc.",  # Extraído del QR
+            "Model": None,  # Extraído del QR
+            "Serial Number": qr_data.strip(),  # Código QR escaneado
+            "Comments": "Check",
         }
 
         # Solicitar datos adicionales al usuario
-        plantilla_monitor["location"] = simpledialog.askstring("Input", "Ingrese la ubicación del monitor:").strip()
-        #plantilla_monitor["manufacturers_id"] = simpledialog.askstring("Input", "Ingrese el fabricante del monitor:").strip()
-        #plantilla_monitor["model"] = simpledialog.askstring("Input", "Ingrese el modelo del monitor:").strip()
+        plantilla_monitor["Location"] = simpledialog.askstring("Input", "Ingrese la ubicación del monitor:").strip()
+        #plantilla_monitor["Manufacturer"] = simpledialog.askstring("Input", "Ingrese el fabricante del monitor:").strip()
+        #plantilla_monitor["Model"] = simpledialog.askstring("Input", "Ingrese el modelo del monitor:").strip()
 
         # Generar el nombre del activo a partir del modelo
-        plantilla_monitor["name"] = f"{plantilla_monitor['model']}-{plantilla_monitor['serial']}"
+        plantilla_monitor["Name"] = f"{plantilla_monitor['Model']}-{plantilla_monitor['Serial Number']}"
 
         return plantilla_monitor
 
@@ -1409,12 +1133,12 @@ class GLPIApp:
             messagebox.showerror("Error", "Método no válido. Intente nuevamente.")
             return
 
-        df = pd.read_excel(ruta_excel, sheet_name="Monitor")
+        df = pd.read_excel(ruta_excel)
         if df.empty:
             messagebox.showerror("Error", "El archivo Excel está vacío.")
             return
 
-        filtro = df[df["serial"].str.lower() == serial_number.lower()]
+        filtro = df[df["Serial Number"].str.lower() == serial_number.lower()]
 
         if filtro.empty:
             messagebox.showerror("Error", f"No se encontró un monitor con el número de serie '{serial_number}' en el archivo Excel.")
@@ -1423,11 +1147,11 @@ class GLPIApp:
         nuevo_usuario = simpledialog.askstring("Input", "Ingrese el nombre del usuario que recibirá el monitor:").strip()
 
         # Manejar valores NaN antes de actualizar el DataFrame
-        df["users_id"] = df["users_id"].fillna("")
-        df["name"] = df["name"].fillna("Unknown")
+        df["User"] = df["User"].fillna("")
+        df["Name"] = df["Name"].fillna("Unknown")
 
         # Determinar el nuevo nombre del monitor en base al usuario
-        manufacturer = filtro["manufacturers_id"].values[0]
+        manufacturer = filtro["Manufacturer"].values[0]
         if manufacturer == "Dell" or manufacturer == "dell" or manufacturer == "Dell inc." or manufacturer == "Dell Inc." or manufacturer == "DELL":
             new_name = f"{nuevo_usuario}-DellMonitor"
         elif manufacturer == "Samsung":
@@ -1435,10 +1159,10 @@ class GLPIApp:
         else:
             new_name = f"{nuevo_usuario}-Monitor"
 
-        df.loc[df["serial"].str.lower() == serial_number.lower(), "users_id"] = nuevo_usuario
-        df.loc[df["serial"].str.lower() == serial_number.lower(), "name"] = new_name
+        df.loc[df["Serial Number"].str.lower() == serial_number.lower(), "User"] = nuevo_usuario
+        df.loc[df["Serial Number"].str.lower() == serial_number.lower(), "Name"] = new_name
 
-        df.to_excel(ruta_excel, sheet_name="Monitor", index=False)
+        df.to_excel(ruta_excel, index=False)
         messagebox.showinfo("Información", f"Monitor con número de serie '{serial_number}' asignado a '{nuevo_usuario}' en el Excel.")
 
         # Actualizar en GLPI
@@ -1453,8 +1177,8 @@ class GLPIApp:
             return
 
         asset_data = filtro.iloc[0].to_dict()
-        asset_data["users_id"] = nuevo_usuario
-        asset_data["name"] = new_name  
+        asset_data["User"] = nuevo_usuario
+        asset_data["Name"] = new_name  
 
         self.actualizar_asset_glpi_monitor(session_token, asset_id, asset_data)
 
@@ -1466,19 +1190,19 @@ class GLPIApp:
         }
 
         # Obtener el ID del usuario basado en su nombre
-        user_id = self.obtener_user_id(session_token, asset_data["users_id"])
+        user_id = self.obtener_user_id(session_token, asset_data["User"])
         messagebox.showinfo("Información", f"ID del usuario encontrado: {user_id}")
         if not user_id:
-            messagebox.showerror("Error", f"No se encontró el usuario '{asset_data['users_id']}' en GLPI.")
+            messagebox.showerror("Error", f"No se encontró el usuario '{asset_data['User']}' en GLPI.")
             return
 
         # Determinar el nuevo nombre del monitor
-        if "Dell" in asset_data["manufacturers_id"]:
-            new_name = f"{asset_data['users_id']}-DellMonitor"
-        elif "Samsung" in asset_data["manufacturers_id"]:
-            new_name = f"{asset_data['users_id']}-SamsungMonitor"
+        if "Dell" in asset_data["Manufacturer"]:
+            new_name = f"{asset_data['User']}-DellMonitor"
+        elif "Samsung" in asset_data["Manufacturer"]:
+            new_name = f"{asset_data['User']}-SamsungMonitor"
         else:
-            new_name = f"{asset_data['users_id']}-Monitor"
+            new_name = f"{asset_data['User']}-Monitor"
 
         # Preparar datos para la actualización en GLPI
         payload = {
@@ -1563,127 +1287,57 @@ class GLPIApp:
         if flag == "Dell":
             # Plantilla de la laptop Dell Latitude
             plantilla_dell = {
-                "asset_type": "Computer",
-                "name": None,  # Generado a partir del nombre del usuario
-                "locations_id": None,  # Solicitar por pantalla
-                "manufacturers_id": "Dell Inc.",
-                "serial": qr_data.strip(),  # QR escaneado de la laptop
-                "otherserial": "",
-                "contact": "",
-                "contact_num": "",
-                "users_id_tech": "",
-                "groups_id_tech": "",
-                "comment": "Check",
-                "date_mod": "",
-                "autoupdatesystems_id": "",
-                "networks_id": "",
-                "computermodels_id": "",
-                "computertypes_id": "Laptop",
-                "is_template": "",
-                "template_name": "",
-                "is_deleted": "",
-                "is_dynamic": "",
-                "users_id": None,  # Solicitar por pantalla
-                "groups_id": "",
-                "states_id": "",
-                "ticket_tco": "",
-                "uuid": "",
-                "date_creation": "",
-                "is_recursive": "",
-                "stock_target": "",
-                "last_inventory_update": "",
-                "last_boot": "",
-                "type": "",
-                "model": "Latitude",
-                "asset_tag": "",
-                "purchase_date": "",
-                "warranty_expiration_date": "",
-                "status": "Stocked",  # Solicitar por pantalla
-                "location": None,  # Solicitar por pantalla
-                "department": "",
-                "ip_address": "",
-                "mac_address": "",
-                "operating_system": "",
-                "processor": "",
-                "ram": "",
-                "storage": "",
-                "last_user": "",
-                "supplier": "",
-                "purchase_price": "",
-                "order_number": "",
-                "invoice_number": ""
+                "Asset Type": "Computer",
+                "Status": "Stocked",  # Solicitar por pantalla
+                "User": None,    # Solicitar por pantalla
+                "Name": None,    # Generado a partir del nombre del usuario
+                "Computer Types": "Laptop",
+                "Location": None,  # Solicitar por pantalla
+                "Manufacturer": "Dell inc.",
+                "Model": "Latitude",
+                "Serial Number": qr_data.strip(),  # QR escaneado de la laptop
+                "Comments": "Check",
             }
 
             # Solicitar datos adicionales al usuario
-            plantilla_dell["location"] = simpledialog.askstring("Input", "Ingrese la ubicación del activo:").strip()
-            #plantilla_dell["users_id"] = simpledialog.askstring("Input", "Ingrese el nombre del usuario:").strip()
+            #plantilla_dell["Status"] = simpledialog.askstring("Input", "Ingrese el estado del activo (Activo/Inactivo):").strip()
+            #plantilla_dell["User"] = simpledialog.askstring("Input", "Ingrese el nombre del usuario:").strip()
+            plantilla_dell["Location"] = simpledialog.askstring("Input", "Ingrese la ubicación del activo:").strip()
             
             # Generar el nombre del activo a partir del usuario
-            plantilla_dell["name"] = f"{plantilla_dell['users_id']}-Latitude"
+            plantilla_dell["Name"] = f"{plantilla_dell['User']}-Latitude"
 
             return plantilla_dell
         elif flag == "Mac":
             # Plantilla para laptops MacBook
             plantilla_mac = {
-                "asset_type": "Computer",
-                "name": None,  # Generado a partir del nombre del usuario
-                "locations_id": None,  # Solicitar por pantalla
-                "manufacturers_id": "Apple Inc.",
-                "serial": qr_data.strip(),  # QR escaneado de la laptop
-                "otherserial": "",
-                "contact": "",
-                "contact_num": "",
-                "users_id_tech": "",
-                "groups_id_tech": "",
-                "comment": "Check",
-                "date_mod": "",
-                "autoupdatesystems_id": "",
-                "networks_id": "",
-                "computermodels_id": "",
-                "computertypes_id": "Laptop",
-                "is_template": "",
-                "template_name": "",
-                "is_deleted": "",
-                "is_dynamic": "",
-                "users_id": None,  # Solicitar por pantalla
-                "groups_id": "",
-                "states_id": "",
-                "ticket_tco": "",
-                "uuid": "",
-                "date_creation": "",
-                "is_recursive": "",
-                "stock_target": "",
-                "last_inventory_update": "",
-                "last_boot": "",
-                "type": "",
-                "model": "MacBook Pro",
-                "asset_tag": "",
-                "purchase_date": "",
-                "warranty_expiration_date": "",
-                "status": "Stocked",  # Solicitar por pantalla
-                "location": None,  # Solicitar por pantalla
-                "department": "",
-                "ip_address": "",
-                "mac_address": "",
-                "operating_system": "",
-                "processor": "",
-                "ram": "",
-                "storage": "",
-                "last_user": "",
-                "supplier": "",
-                "purchase_price": "",
-                "order_number": "",
-                "invoice_number": ""
+                "Asset Type": "Computer",
+                "Status": "Stocked",  # Solicitar por pantalla
+                "User": None,    # Solicitar por pantalla
+                "Name": None,    # Generado a partir del nombre del usuario
+                "Computer Types": "Laptop",
+                "Location": None,  # Solicitar por pantalla
+                "Manufacturer": "Apple Inc",
+                "Model": "MacBook Pro",
+                "Serial Number": qr_data.strip(),  # QR escaneado de la laptop
+                "Comments": "Check",
             }
 
             # Solicitar datos adicionales al usuario
-            plantilla_mac["location"] = simpledialog.askstring("Input", "Ingrese la ubicación del activo:").strip()
-            #plantilla_mac["users_id"] = simpledialog.askstring("Input", "Ingrese el nombre del usuario:").strip()
+            #plantilla_mac["Status"] = simpledialog.askstring("Input", "Ingrese el estado del activo (Activo/Inactivo):").strip()
+            #plantilla_mac["User"] = simpledialog.askstring("Input", "Ingrese el nombre del usuario:").strip()
+            plantilla_mac["Location"] = simpledialog.askstring("Input", "Ingrese la ubicación del activo:").strip()
             
             # Generar el nombre del activo a partir del usuario
-            plantilla_mac["name"] = f"{plantilla_mac['users_id']}-MacBookPro"
+            plantilla_mac["Name"] = f"{plantilla_mac['User']}-MacBookPro"
 
             return plantilla_mac
+
+    def guardar_plantilla_txt(self, asset_data, nombre_archivo):
+        with open(nombre_archivo, 'w') as file:
+            for key, value in asset_data.items():
+                file.write(f"{key}: {value}\n")
+        messagebox.showinfo("Información", f"Plantilla guardada en {nombre_archivo}")
 
     def manejar_qr_laptop(self, flag):
         try: 
@@ -1691,7 +1345,7 @@ class GLPIApp:
                 manufacturer = simpledialog.askstring("Input", "Ingrese el fabricante del laptop (Dell/Mac):").strip().lower()
                 serial_number = None
                 
-                if manufacturer in ["dell", "dell inc.", "dell inc", "dell inc.", "dell"]:
+                if manufacturer == "Dell" or manufacturer == "dell" or manufacturer == "Dell inc." or manufacturer == "Dell Inc." or manufacturer == "DELL":
                     metodo = simpledialog.askstring("Input", "¿Desea escanear el QR o ingresar el Service Tag manualmente? (escanear/manual):").strip().lower()
                     if metodo == "escanear":
                         qr_data = self.escanear_qr_con_celular()
@@ -1705,15 +1359,11 @@ class GLPIApp:
                                     return
                                 else:
                                     asset_data = self.procesar_qr_laptop("Dell", serial_number)
-                                    self.agregar_a_excel(asset_data, "Computer")
-                                    manufacturer = "Dell Inc."
-                                    return serial_number, manufacturer
+                                    self.agregar_a_excel(asset_data)
                             else: 
                                 messagebox.showinfo("Información", "Operación cancelada por el usuario.")
                                 return
-                        else:
-                            messagebox.showerror("Error", "Service Tag no válido. Intente nuevamente.")
-                            return
+                                
                     elif metodo == "manual":
                         serial_number = simpledialog.askstring("Input", "Ingrese el Service Tag del laptop:").strip()
                         if re.match(r'^[A-Za-z0-9]{7}$', serial_number) or re.match(r'\bcs[a-z0-9]{5}\b', serial_number):
@@ -1725,19 +1375,18 @@ class GLPIApp:
                                     return
                                 else:
                                     asset_data = self.procesar_qr_laptop("Dell", serial_number)
-                                    self.agregar_a_excel(asset_data, "Computer")
-                                    manufacturer = "Dell Inc."
-                                    return serial_number, manufacturer
+                                    self.agregar_a_excel(asset_data)
                             else: 
                                 messagebox.showinfo("Información", "Operación cancelada por el usuario.")
                                 return
                         else:
                             messagebox.showerror("Error", "Service Tag no válido. Intente nuevamente.")
                             return
+                    
                     else: 
                         messagebox.showerror("Error", "Método no válido. Intente nuevamente.")
                         return 
-                elif manufacturer in ["mac", "mac inc.", "apple inc.", "apple"]:
+                elif manufacturer == "Mac" or manufacturer == "mac" or manufacturer == "Mac Inc." or manufacturer == "Apple Inc." or manufacturer == "APPLE":
                     metodo = simpledialog.askstring("Input", "¿Desea escanear el QR o ingresar el Serial Number manualmente? (escanear/manual):").strip().lower()
                     if metodo == "escanear":
                         qr_data = self.escanear_qr_con_celular()
@@ -1753,9 +1402,7 @@ class GLPIApp:
                                     return
                                 else:
                                     asset_data = self.procesar_qr_laptop("Mac", serial_number)
-                                    self.agregar_a_excel(asset_data, "Computer")
-                                    manufacturer = "Apple Inc"
-                                    return serial_number, manufacturer
+                                    self.agregar_a_excel(asset_data)
                             else: 
                                 messagebox.showinfo("Información", "Operación cancelada por el usuario.")
                                 return
@@ -1773,9 +1420,7 @@ class GLPIApp:
                                     return
                                 else:
                                     asset_data = self.procesar_qr_laptop("Mac", serial_number)
-                                    self.agregar_a_excel(asset_data, "Computer")
-                                    manufacturer = "Apple Inc"
-                                    return serial_number, manufacturer
+                                    self.agregar_a_excel(asset_data)
                             else:
                                 messagebox.showinfo("Información", "Operación cancelada por el usuario.")
                                 return
@@ -1789,7 +1434,7 @@ class GLPIApp:
                 manufacturer = simpledialog.askstring("Input", "Ingrese el fabricante del laptop (Dell/Mac):").strip().lower()
                 serial_number = None
                 
-                if manufacturer in ["dell", "dell inc.", "dell inc", "dell inc.", "dell"]:
+                if manufacturer == "Dell" or manufacturer == "dell" or manufacturer == "Dell inc." or manufacturer == "Dell Inc." or manufacturer == "DELL":
                     metodo = simpledialog.askstring("Input", "¿Desea escanear el QR o ingresar el Service Tag manualmente? (escanear/manual):").strip().lower()
                     if metodo == "escanear":
                         qr_data = self.escanear_qr_con_celular()
@@ -1819,7 +1464,7 @@ class GLPIApp:
                         messagebox.showerror("Error", "Método no válido. Intente nuevamente.")
                         return 
                     
-                elif manufacturer in ["mac", "mac inc.", "apple inc.", "apple"]:
+                elif manufacturer == "Mac" or manufacturer == "mac" or manufacturer == "Mac Inc." or manufacturer == "Apple Inc." or manufacturer == "APPLE":
                     metodo = simpledialog.askstring("Input", "¿Desea escanear el QR o ingresar el Serial Number manualmente? (escanear/manual):").strip().lower()
                     if metodo == "escanear":
                         qr_data = self.escanear_qr_con_celular()
@@ -1857,160 +1502,29 @@ class GLPIApp:
             
     def registrar_laptop(self):
         try:
-            messagebox.showinfo("Información", "--- Registrar Laptop en Excel y GLPI ---")
-            result = self.manejar_qr_laptop("Register")
-            
-            if result is None:
-                messagebox.showerror("Error", "No se pudo obtener el serial number y el fabricante del laptop.")
-                return
-            
-            serial_number, manufacturer = result
-
-            # Cargar el archivo Excel
-            wb = load_workbook(ruta_excel)
-            if "Computer" not in wb.sheetnames:
-                messagebox.showerror("Error", "La hoja 'Computer' no existe en el archivo Excel.")
-                return
-            
-            ws = wb["Computer"]
-            df = pd.DataFrame(ws.values)
-            df.columns = df.iloc[0]
-            df = df[1:]
-
-            if df.empty:
-                messagebox.showerror("Error", "El archivo Excel está vacío.")
-                return
-
-            # Validar columnas necesarias
-            required_columns = ["serial", "manufacturers_id", "users_id", "name"]
-            if not all(col in df.columns for col in required_columns):
-                messagebox.showerror("Error", "El archivo Excel no contiene las columnas necesarias.")
-                return
-            
-            filtro = df[df["serial"].str.lower() == serial_number.lower()]
-
-            #if not filtro.empty:
-            #    messagebox.showinfo("Información", f"El activo con serial '{serial_number}' ya está registrado en el Excel. No se agregará.")
-            #    return
-
-            nuevo_usuario = simpledialog.askstring("Input", "Ingrese el nombre del usuario que recibirá el laptop:").strip()
-            if not nuevo_usuario:
-                messagebox.showerror("Error", "El nombre del usuario no puede estar vacío.")
-                return
-            
-            # Manejar valores NaN antes de actualizar el DataFrame
-            df["users_id"] = df["users_id"].fillna("")
-            df["name"] = df["name"].fillna("Unknown")
-
-            # Determinar el nuevo nombre del laptop en base al fabricante
-            if manufacturer in ["dell", "dell inc.", "dell inc", "dell inc.", "dell", "Dell Inc."]:
-                new_name = f"{nuevo_usuario}-Latitude"
-            elif manufacturer in ["mac", "mac inc.", "apple inc.", "apple", "Apple Inc"]:
-                new_name = f"{nuevo_usuario}-MacBookPro"
-            else:
-                messagebox.showerror("Error", "No se pudo determinar el fabricante del laptop.")
-                return
-
-            # Crear un nuevo registro en el DataFrame
-            new_row = pd.DataFrame([{
-                "serial": serial_number,
-                "manufacturers_id": manufacturer,
-                "users_id": nuevo_usuario,
-                "name": new_name
-            }])
-            df = pd.concat([df, new_row], ignore_index=True)
-
-            # Limpiar las filas de datos existentes antes de escribir los datos actualizados
-            ws.delete_rows(2, ws.max_row)
-
-            # Escribir los datos actualizados de vuelta a la hoja "Computer" sin los encabezados
-            for row in dataframe_to_rows(df, index=False, header=False):
-                ws.append(row)
-
-            wb.save(ruta_excel)
-            messagebox.showinfo("Información", f"Laptop con Service Tag '{serial_number}' registrado a '{nuevo_usuario}' en el Excel.")
-
-            # Registrar en GLPI
-            session_token = self.obtener_token_sesion()
-            if not session_token:
-                messagebox.showerror("Error", "No se pudo obtener el token de sesión.")
-                return
-
-            # Obtener el ID del usuario en GLPI
-            user_id = self.obtener_user_id(session_token, nuevo_usuario)
-            if not user_id:
-                messagebox.showerror("Error", f"No se pudo encontrar el usuario '{nuevo_usuario}' en GLPI.")
-                return
-
-            # Obtener el ID del fabricante en GLPI
-            manufacturer_id = self.obtener_manufacturer_id(session_token, manufacturer)
-            if not manufacturer_id:
-                messagebox.showerror("Error", f"No se pudo encontrar el fabricante '{manufacturer}' en GLPI.")
-                return
-
-            # Definir los encabezados HTTP
-            headers = {
-                "Content-Type": "application/json",
-                "Session-Token": session_token,
-                "App-Token": APP_TOKEN
-            }
-
-            # Preparar datos para la creación en GLPI
-            payload = {
-                "input": {
-                    "name": new_name,
-                    "serial": serial_number,
-                    "users_id": int(user_id),  # Asegurarse de que el ID del usuario es un entero
-                    "manufacturers_id": int(manufacturer_id)  # Asegurarse de que el ID del fabricante es un entero
-                }
-            }
-
-            response = requests.post(f"{GLPI_URL}/Computer", headers=headers, json=payload, verify=False)
-
-            if response.status_code == 201:
-                messagebox.showinfo("Éxito", f"Laptop con Service Tag '{serial_number}' registrado correctamente en GLPI.")
-            else:
-                messagebox.showerror("Error", f"Error al registrar el laptop en GLPI: {response.status_code}")
-                try:
-                    messagebox.showerror("Error", response.json())
-                except json.JSONDecodeError:
-                    messagebox.showerror("Error", response.text)
+            messagebox.showinfo("Información", "--- Registrar Laptop en Excel ---")
+            self.manejar_qr_laptop("Register")
         except Exception as e:
             messagebox.showerror("Error", f"Se produjo un error inesperado: {str(e)}")
-
+            
     def entregar_laptop(self):
         try: 
             messagebox.showinfo("Información", "--- Entregar Laptop a Usuario ---")
-            result = self.manejar_qr_laptop("Deliver")
-            
-            if result is None:
-                messagebox.showerror("Error", "No se pudo obtener el serial number y el fabricante del laptop.")
-                return
-            
-            serial_number, manufacturer = result
+            serial_number, manufacturer = self.manejar_qr_laptop("Deliver")
 
             # Cargar el archivo Excel
-            wb = load_workbook(ruta_excel)
-            if "Computer" not in wb.sheetnames:
-                messagebox.showerror("Error", "La hoja 'Computer' no existe en el archivo Excel.")
-                return
-            
-            ws = wb["Computer"]
-            df = pd.DataFrame(ws.values)
-            df.columns = df.iloc[0]
-            df = df[1:]
-
+            df = pd.read_excel(ruta_excel)
             if df.empty:
                 messagebox.showerror("Error", "El archivo Excel está vacío.")
                 return
 
             # Validar columnas necesarias
-            required_columns = ["serial", "manufacturers_id", "users_id", "name"]
+            required_columns = ["Serial Number", "Manufacturer", "User", "Name"]
             if not all(col in df.columns for col in required_columns):
                 messagebox.showerror("Error", "El archivo Excel no contiene las columnas necesarias.")
                 return
             
-            filtro = df[df["serial"].str.lower() == serial_number.lower()]
+            filtro = df[df["Serial Number"].str.lower() == serial_number.lower()]
 
             if filtro.empty:
                 messagebox.showerror("Error", f"No se encontró un laptop con el Service Tag '{serial_number}' en el archivo Excel.")
@@ -2022,30 +1536,24 @@ class GLPIApp:
                 return
             
             # Manejar valores NaN antes de actualizar el DataFrame
-            df["users_id"] = df["users_id"].fillna("")
-            df["name"] = df["name"].fillna("Unknown")
+            df["User"] = df["User"].fillna("")
+            df["Name"] = df["Name"].fillna("Unknown")
+
 
             # Determinar el nuevo nombre del laptop en base al fabricante
-            if manufacturer in ["dell", "dell inc.", "dell inc", "dell inc.", "dell"]:
+            if manufacturer == "Dell" or manufacturer == "dell" or manufacturer == "Dell inc." or manufacturer == "Dell Inc." or manufacturer == "DELL":
                 new_name = f"{nuevo_usuario}-Latitude"
-            elif manufacturer in ["mac", "mac inc.", "apple inc.", "apple"]:
+            elif manufacturer == "Mac" or manufacturer == "mac" or manufacturer == "Mac Inc." or manufacturer == "Apple Inc." or manufacturer == "Apple":
                 new_name = f"{nuevo_usuario}-MacBookPro"
             else:
                 messagebox.showerror("Error", "No se pudo determinar el fabricante del laptop.")
                 return
 
             # Actualizar DataFrame con los nuevos valores
-            df.loc[df["serial"].str.lower() == serial_number.lower(), "users_id"] = nuevo_usuario
-            df.loc[df["serial"].str.lower() == serial_number.lower(), "name"] = new_name
+            df.loc[df["Serial Number"].str.lower() == serial_number.lower(), "User"] = nuevo_usuario
+            df.loc[df["Serial Number"].str.lower() == serial_number.lower(), "Name"] = new_name
 
-            # Limpiar las filas de datos existentes antes de escribir los datos actualizados
-            ws.delete_rows(2, ws.max_row)
-
-            # Escribir los datos actualizados de vuelta a la hoja "Computer" sin los encabezados
-            for row in dataframe_to_rows(df, index=False, header=False):
-                ws.append(row)
-
-            wb.save(ruta_excel)
+            df.to_excel(ruta_excel, index=False)
             messagebox.showinfo("Información", f"Laptop con Service Tag '{serial_number}' asignado a '{nuevo_usuario}' en el Excel.")
 
             # Actualizar en GLPI
@@ -2060,8 +1568,8 @@ class GLPIApp:
                 return
 
             asset_data = filtro.iloc[0].to_dict()
-            asset_data["users_id"] = nuevo_usuario
-            asset_data["name"] = new_name  
+            asset_data["User"] = nuevo_usuario
+            asset_data["Name"] = new_name  
 
             self.actualizar_asset_glpi(session_token, asset_id, asset_data)
         except Exception as e:
@@ -2135,17 +1643,17 @@ class GLPIApp:
         }
 
         # Obtener el ID del usuario basado en su nombre
-        user_id = self.obtener_user_id(session_token, asset_data["users_id"])
+        user_id = self.obtener_user_id(session_token, asset_data["User"])
         messagebox.showinfo("Información", f"ID del usuario encontrado: {user_id}")
         if not user_id:
-            messagebox.showerror("Error", f"No se encontró el usuario '{asset_data['users_id']}' en GLPI.")
+            messagebox.showerror("Error", f"No se encontró el usuario '{asset_data['User']}' en GLPI.")
             return
 
         # Determinar el nuevo nombre según el fabricante
-        if "Dell" in asset_data["manufacturers_id"] or "Dell Inc." in asset_data["manufacturers_id"] or "dell" in asset_data["manufacturers_id"] or "DELL" in asset_data["manufacturers_id"] or "Dell inc." in asset_data["manufacturers_id"]:
-            new_name = f"{asset_data['users_id']}-Latitude"
-        elif "Apple" in asset_data["manufacturers_id"] or "Apple Inc." in asset_data["manufacturers_id"] or "apple" in asset_data["manufacturers_id"] or "MAC" in asset_data["manufacturers_id"] or "Mac" in asset_data["manufacturers_id"] or "mac" in asset_data["manufacturers_id"]:
-            new_name = f"{asset_data['users_id']}-MacBookPro"
+        if "Dell" in asset_data["Manufacturer"] or "Dell Inc." in asset_data["Manufacturer"] or "dell" in asset_data["Manufacturer"] or "DELL" in asset_data["Manufacturer"] or "Dell inc." in asset_data["Manufacturer"]:
+            new_name = f"{asset_data['User']}-Latitude"
+        elif "Apple" in asset_data["Manufacturer"] or "Apple Inc." in asset_data["Manufacturer"] or "apple" in asset_data["Manufacturer"] or "MAC" in asset_data["Manufacturer"] or "Mac" in asset_data["Manufacturer"] or "mac" in asset_data["Manufacturer"]:
+            new_name = f"{asset_data['User']}-MacBookPro"
         else:
             messagebox.showerror("Error", "No se pudo determinar el fabricante del laptop.")
             return
@@ -2155,7 +1663,7 @@ class GLPIApp:
             "input": {
                 "id": asset_id,  
                 "name": new_name,
-                "users_id": user_id
+                #"users_id": user_id
             }
         }
 
@@ -2179,8 +1687,6 @@ class GLPIApp:
 
         params = {"searchText": username.strip().lower(), "range": "0-999"}
         response = requests.get(f"{GLPI_URL}/search/User", headers=headers, params=params, verify=False)
-        #print(response)
-        #print(response.json())
 
         if response.status_code == 200:
             users = response.json().get("data", [])
@@ -2197,7 +1703,6 @@ class GLPIApp:
                 # Comparar el nombre normalizado
                 if nombre_completo.lower() == username.strip().lower() or username_glpi.lower() == username.strip().lower():
                     messagebox.showinfo("Información", f"Usuario encontrado: {nombre_completo}, ID: {user.get('1')}")
-                    print(id)
                     return user.get("1")  # Asegúrate de que '1' es el ID correcto en tu sistema GLPI
 
             messagebox.showerror("Información", f"No se encontró el usuario '{username}' en GLPI.")
@@ -2205,7 +1710,7 @@ class GLPIApp:
         else:
             messagebox.showerror("Error", f"Error al buscar el usuario en GLPI: {response.status_code}")
             return None
-    
+
 if __name__ == "__main__":
     root = tk.Tk()
     app = GLPIApp(root)
