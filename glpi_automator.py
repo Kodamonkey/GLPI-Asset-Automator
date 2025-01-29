@@ -147,22 +147,25 @@ class GLPIApp:
         ttk.Label(frames["Laptops"], text="Laptops", style="Header.TLabel").grid(row=0, column=0, pady=10)
         ttk.Button(frames["Laptops"], text="Escanear QR y registrar laptop (Dell/Mac)", command=self.registrar_laptop).grid(row=1, column=0, padx=10, pady=5)
         ttk.Button(frames["Laptops"], text="Entregar laptop a un usuario", command=self.entregar_laptop).grid(row=2, column=0, padx=10, pady=5)
+        ttk.Button(frames["Laptops"], text="Salir", command=self.root.quit).grid(row=3, column=0, padx=10, pady=5)
 
         # Monitores
         ttk.Label(frames["Monitores"], text="Monitores", style="Header.TLabel").grid(row=0, column=0, pady=10)
         ttk.Button(frames["Monitores"], text="Escanear QR y registrar monitores", command=self.manejar_qr_monitor).grid(row=1, column=0, padx=10, pady=5)
         ttk.Button(frames["Monitores"], text="Entregar monitor a un usuario", command=self.entregar_monitor).grid(row=2, column=0, padx=10, pady=5)
+        ttk.Button(frames["Monitores"], text="Salir", command=self.root.quit).grid(row=3, column=0, padx=10, pady=5)
 
         # Consumibles
         ttk.Label(frames["Consumibles"], text="Consumibles", style="Header.TLabel").grid(row=0, column=0, pady=10)
         ttk.Button(frames["Consumibles"], text="Agregar consumible", command=self.agregar_consumible).grid(row=1, column=0, padx=10, pady=5)
         ttk.Button(frames["Consumibles"], text="Quitar consumible", command=self.quitar_consumible).grid(row=2, column=0, padx=10, pady=5)
+        ttk.Button(frames["Consumibles"], text="Salir", command=self.root.quit).grid(row=3, column=0, padx=10, pady=5)
 
         # Excel
         ttk.Label(frames["Excel/GLPI"], text="GLPI/Excel", style="Header.TLabel").grid(row=0, column=0, pady=10)
-        ttk.Button(frames["Excel/GLPI"], text="Registrar la última fila del Excel en GLPI", command=self.registrar_ultima_fila).grid(row=1, column=0, padx=10, pady=5)
-        ttk.Button(frames["Excel/GLPI"], text="Registrar un activo por nombre", command=self.registrar_por_nombre).grid(row=2, column=0, padx=10, pady=5)
-        ttk.Button(frames["Excel/GLPI"], text="Registrar todos los activos de Excel en GLPI", command=lambda: self.procesar_archivo_excel(ruta_excel)).grid(row=3, column=0, padx=10, pady=5)
+        #ttk.Button(frames["Excel/GLPI"], text="Registrar la última fila del Excel en GLPI", command=self.registrar_ultima_fila).grid(row=1, column=0, padx=10, pady=5)
+        #ttk.Button(frames["Excel/GLPI"], text="Registrar un activo por nombre", command=self.registrar_por_nombre).grid(row=2, column=0, padx=10, pady=5)
+        #ttk.Button(frames["Excel/GLPI"], text="Registrar todos los activos de Excel en GLPI", command=lambda: self.procesar_archivo_excel(ruta_excel)).grid(row=3, column=0, padx=10, pady=5)
         ttk.Button(frames["Excel/GLPI"], text="Warning: Extraer TODOS Datos de GLPI a Excel", command= self.extraer_datos_glpi_a_excel).grid(row=4, column=0, padx=10, pady=5)
         ttk.Button(frames["Excel/GLPI"], text="Salir", command=self.root.quit).grid(row=5, column=0, padx=10, pady=5)
 
@@ -529,23 +532,6 @@ class GLPIApp:
         }
 
         self.registrar_asset(session_token, asset_data, row["Asset Type"])
-
-    def obtener_location_id(self, session_token, location_name):
-        headers = {
-            "Content-Type": "application/json",
-            "Session-Token": session_token,
-            "App-Token": APP_TOKEN
-        }
-        
-        params = {'searchText': location_name, 'range': '0-999'}
-        response = requests.get(f"{GLPI_URL}/Location", headers=headers, params=params, verify=False)
-
-        if response.status_code == 200:
-            locations = response.json()
-            for location in locations:
-                if location.get("name", "").strip().lower() == location_name.strip().lower():
-                    return location["id"]
-        return None
 
     def obtener_manufacturer_id(self, session_token, manufacturer_name):
         headers = {
@@ -1033,88 +1019,194 @@ class GLPIApp:
         wb = load_workbook(ruta_excel)
         ws, excel_headers = self.crear_hoja_excel(wb, "Consumables")
 
-        # Convertir inventory_number a string para evitar errores
+        # Convertir a string y manejar NaN para evitar errores
         inventory_number_str = str(inventory_number).strip().lower()
+        location_str = str(location).strip() if pd.notna(location) else ""
+
+        session_token = self.obtener_token_sesion()
+        location_id = self.obtener_location_id(session_token, location_str)
+
+        if location_id is None:
+            messagebox.showerror("Error", "No se pudo obtener el ID de la ubicación. No se registrará el consumible.")
+            return
 
         # Verificar si el consumible ya está registrado
         for row in ws.iter_rows(min_row=2, values_only=False):
-            if row[excel_headers.index("name")].value.lower() == nombre.lower() and row[excel_headers.index("otherserial")].value.lower() == inventory_number_str:
+            if (row[excel_headers.index("name")].value or "").strip().lower() == nombre.lower() and \
+            (row[excel_headers.index("otherserial")].value or "").strip().lower() == inventory_number_str:
                 row[excel_headers.index("stock_target")].value = stock
-                break
-        else:
-            nuevo_consumible = [
-                None, None, nombre, None, inventory_number_str, None, None, 
-                None, None, None, None, None, 
-                self.obtener_location_id(self.obtener_token_sesion(), location), None, None, None, None, 
-                None, None, None, None, None, None, None, None, None, None, None, None, 
-                None, None, None, None, None, None, None, None, None, None, None, None, 
-                None, None, None, None, None, None, None, None, None, stock
-            ]
-            ws.append(nuevo_consumible)
+                wb.save(ruta_excel)
+                messagebox.showinfo("Información", f"El stock del consumible '{nombre}' ha sido actualizado en el Excel.")
+                return
 
+        # Crear un diccionario con los datos a agregar
+        nuevo_consumible = {col: None for col in excel_headers}  # Inicializar con None en todas las columnas
+        nuevo_consumible["name"] = nombre
+        nuevo_consumible["otherserial"] = inventory_number_str
+        nuevo_consumible["locations_id"] = location_id
+        nuevo_consumible["stock_target"] = stock
+
+        # Ordenar los valores para alinearlos con las columnas del Excel
+        nuevo_consumible_fila = [nuevo_consumible[col] for col in excel_headers]
+
+        # Agregar la nueva fila correctamente alineada
+        ws.append(nuevo_consumible_fila)
+
+        # Guardar el archivo
         wb.save(ruta_excel)
-        messagebox.showinfo("Información", f"El consumible '{nombre}' ha sido registrado/actualizado en el Excel.")
+        messagebox.showinfo("Información", f"El consumible '{nombre}' ha sido registrado en el Excel correctamente.")
+
+
 
     # Actualizar las funciones agregar_consumible y quitar_consumible para usar el nuevo formato
     def agregar_consumible(self):
-        messagebox.showinfo("Información", "--- Agregar Consumible al Stock ---")
+        """
+        Maneja la adición de consumibles al stock, validando si ya existen en Excel y GLPI.
+        Si no existen, los crea antes de actualizar el stock.
+        """
+        try:
+            messagebox.showinfo("Información", "--- Agregar Consumible al Stock ---")
 
-        metodo = simpledialog.askstring("Input", "¿Desea escanear el QR o ingresar manualmente? (qr/manual): ").strip().lower()
+            # Obtener número de inventario (QR o manual)
+            inventory_number = self.obtener_numero_inventario()
+            if not inventory_number:
+                return  # Error ya manejado en `obtener_numero_inventario`
 
-        if metodo == "qr":
-            qr_data = self.escanear_qr_con_celular()
-            if qr_data:
-                inventory_number = qr_data.strip()
-                messagebox.showinfo("Información", f"Inventory Number detectado: {inventory_number}")
+            # Cargar Excel y verificar si el consumible ya existe
+            df = pd.read_excel(ruta_excel, sheet_name="Consumables")
+            df.columns = df.columns.str.strip()  # Eliminar espacios en los nombres de columnas
+
+            filtro = df[df["otherserial"].astype(str).str.lower() == inventory_number.lower()]
+            if not filtro.empty:
+                nombre_consumible = filtro.iloc[0]["name"]
+                location = filtro.iloc[0]["location"]
+                messagebox.showinfo("Información", f"Consumible '{nombre_consumible}' encontrado en el Excel.")
             else:
-                messagebox.showerror("Error", "No se detectó ningún código QR.")
+                messagebox.showinfo("Información", f"No se encontró un consumible con el número de inventario '{inventory_number}'. Creando nuevo...")
+                nombre_consumible = simpledialog.askstring("Input", "Ingrese el nombre del nuevo consumible: ").strip()
+                location = simpledialog.askstring("Input", "Ingrese la ubicación del consumible: ").strip()
+
+            cantidad = int(simpledialog.askstring("Input", "Ingrese la cantidad a agregar al stock: "))
+
+            # Obtener sesión de GLPI
+            session_token = self.obtener_token_sesion()
+            if not session_token:
+                messagebox.showerror("Error", "No se pudo obtener el token de sesión.")
                 return
-        elif metodo == "manual":
-            inventory_number = simpledialog.askstring("Input", "Ingrese el número de inventario o activo: ").strip()
-        else:
-            messagebox.showerror("Error", f"{metodo} no es un metodo valido.")
-            return
 
-        df = pd.read_excel(ruta_excel, sheet_name="Consumables")
-        df.columns = df.columns.str.strip()  # Asegura que no haya espacios en los nombres de columnas
-
-        # Verificar si el consumible ya está registrado en el Excel
-        filtro = df[df["otherserial"].astype(str).str.lower() == inventory_number.lower()]
-
-        if not filtro.empty:
-            messagebox.showinfo("Información", f"Consumible con Inventory Number '{inventory_number}' encontrado en el Excel.")
-            nombre_consumible = filtro.iloc[0]["name"]
-            location = filtro.iloc[0]["location"]
-        else:
-            messagebox.showinfo("Información", f"No se encontró un consumible con el número de inventario '{inventory_number}'. Creando nuevo...")
-            nombre_consumible = simpledialog.askstring("Input", "Ingrese el nombre del nuevo consumible: ").strip()
-            location = simpledialog.askstring("Input", "Ingrese la ubicación del consumible: ").strip()
-
-        cantidad = int(simpledialog.askstring("Input", "Ingrese la cantidad a agregar al stock: "))
-
-        session_token = self.obtener_token_sesion()
-        if not session_token:
-            messagebox.showerror("Error", "No se pudo obtener el token de sesión.")
-            return
-
-        # Corrección: Se pasa tanto el nombre como el inventory_number a la función
-        consumible_id = self.obtener_id_consumible(session_token, nombre_consumible, inventory_number)
-        
-        if not consumible_id:
-            messagebox.showinfo("Información", f"No se encontró el consumible '{nombre_consumible}' en GLPI. Creando uno nuevo...")
-            consumible_id = self.crear_consumible(session_token, nombre_consumible, inventory_number, location, cantidad)
+            # Obtener o crear el consumible en GLPI
+            consumible_id = self.obtener_id_consumible(session_token, nombre_consumible, inventory_number)
             if not consumible_id:
-                messagebox.showerror("Error", "Error al crear el consumible en GLPI.")
-                return
+                messagebox.showinfo("Información", f"No se encontró el consumible '{nombre_consumible}' en GLPI. Creando uno nuevo...")
+                consumible_id = self.crear_consumible(session_token, nombre_consumible, inventory_number, location, cantidad)
+                if not consumible_id:
+                    messagebox.showerror("Error", "Error al crear el consumible en GLPI.")
+                    return
 
-        stock_actual = self.obtener_stock_actual(session_token, consumible_id)
-        nuevo_stock = stock_actual + cantidad
+            # Obtener y actualizar el stock en GLPI
+            stock_actual = self.obtener_stock_actual(session_token, consumible_id)
+            nuevo_stock = stock_actual + cantidad
+            self.actualizar_stock_glpi(session_token, consumible_id, nuevo_stock)
+            messagebox.showinfo("Información", f"Consumible '{nombre_consumible}' actualizado a {nuevo_stock} unidades en GLPI.")
 
-        self.actualizar_stock_glpi(session_token, consumible_id, nuevo_stock)
-        messagebox.showinfo("Información", f"Consumible '{nombre_consumible}' actualizado a {nuevo_stock} unidades en stock.")
+            # Registrar en Excel
+            self.actualizar_excel_consumible(nombre_consumible, inventory_number, location, nuevo_stock)
 
-        # Registrar en Excel
-        self.actualizar_excel_consumible(nombre_consumible, inventory_number, location, nuevo_stock)
+        except Exception as e:
+            messagebox.showerror("Error", f"Se produjo un error inesperado: {str(e)}")
+
+
+    def obtener_numero_inventario(self):
+        """
+        Obtiene el número de inventario del consumible, ya sea mediante escaneo QR o entrada manual.
+        Devuelve el número si es válido, o None si el usuario cancela o hay un error.
+        """
+        try:
+            metodo = simpledialog.askstring("Input", "¿Desea escanear el QR o ingresar manualmente? (qr/manual): ").strip().lower()
+            if metodo == "qr":
+                qr_data = self.escanear_qr_con_celular()
+            elif metodo == "manual":
+                qr_data = simpledialog.askstring("Input", "Ingrese el número de inventario o activo: ").strip()
+            else:
+                messagebox.showerror("Error", f"Método no válido: {metodo}")
+                return None
+
+            if not qr_data:
+                messagebox.showerror("Error", "No se detectó ningún código QR o número de inventario inválido.")
+                return None
+
+            inventory_number = qr_data.strip()
+            messagebox.showinfo("Información", f"Inventory Number detectado: {inventory_number}")
+
+            confirmacion = simpledialog.askstring("Confirmación", f"¿Es correcto este número de inventario '{inventory_number}'? (sí/no): ").strip().lower()
+            if confirmacion not in ["sí", "si"]:
+                messagebox.showinfo("Información", "Operación cancelada por el usuario.")
+                return None
+
+            return inventory_number
+
+        except Exception as e:
+            messagebox.showerror("Error", f"Error al obtener el número de inventario: {str(e)}")
+            return None
+
+    def crear_consumible(self, session_token, nombre, inventory_number, location, stock_target):
+        """
+        Crea un nuevo consumible en GLPI con la información proporcionada.
+        """
+
+        try:
+            # Manejo seguro de NaN y conversión a string
+            location = "" if pd.isna(location) else str(location).strip()
+            inventory_number = "" if pd.isna(inventory_number) else str(inventory_number).strip()
+
+            # Si la ubicación sigue vacía, solicitarla manualmente al usuario
+            if not location:
+                location = simpledialog.askstring("Input", "Ingrese la ubicación del consumible:").strip()
+
+            # Si la ubicación sigue vacía después de solicitarla, detener el proceso
+            if not location:
+                messagebox.showerror("Error", "Ubicación no proporcionada. No se puede registrar el consumible.")
+                return None
+
+            # Obtener location_id
+            location_id = self.obtener_location_id(session_token, location)
+            if not location_id:
+                messagebox.showerror("Error", f"No se encontró la ubicación '{location}' en GLPI.")
+                return None
+
+            headers = {
+                "Content-Type": "application/json",
+                "Session-Token": session_token,
+                "App-Token": APP_TOKEN
+            }
+
+            payload = {
+                "input": {
+                    "name": nombre,
+                    "otherserial": inventory_number,
+                    "locations_id": int(location_id),
+                    "stock_target": stock_target
+                }
+            }
+
+            response = requests.post(f"{GLPI_URL}/ConsumableItem", headers=headers, json=payload, verify=False)
+
+            if response.status_code == 201:
+                consumible_id = response.json().get("id")
+                messagebox.showinfo("Información", f"Consumible '{nombre}' creado exitosamente con ID {consumible_id}.")
+                return consumible_id
+            else:
+                messagebox.showerror("Error", f"Error al crear el consumible en GLPI: {response.status_code}")
+                try:
+                    messagebox.showerror("Error", response.json())
+                except json.JSONDecodeError:
+                    messagebox.showerror("Error", response.text)
+                return None
+
+        except Exception as e:
+            messagebox.showerror("Error", f"Error al crear el consumible en GLPI: {str(e)}")
+            return None
+
 
     def quitar_consumible(self):
         messagebox.showinfo("Información", "--- Quitar Consumible del Stock ---")
@@ -1170,36 +1262,6 @@ class GLPIApp:
 
         # Actualizar en Excel
         self.actualizar_excel_consumible(nombre_consumible, inventory_number, location, nuevo_stock)
-
-    def crear_consumible(self, session_token, nombre, inventory_number, location, stock_target):
-        headers = {
-            "Content-Type": "application/json",
-            "Session-Token": session_token,
-            "App-Token": APP_TOKEN
-        }
-
-        payload = {
-            "input": {
-                "name": nombre,
-                "otherserial": inventory_number,
-                "locations_id": self.obtener_location_id(session_token, location),
-                "stock_target": stock_target
-            }
-        }
-
-        response = requests.post(f"{GLPI_URL}/ConsumableItem", headers=headers, json=payload, verify=False)
-
-        if response.status_code == 201:
-            consumible_id = response.json().get("id")
-            messagebox.showinfo("Información", f"Consumible '{nombre}' creado exitosamente con ID {consumible_id}.")
-            return consumible_id
-        else:
-            messagebox.showerror("Error", f"Error al crear el consumible: {response.status_code}")
-            try:
-                messagebox.showerror("Error", response.json())
-            except json.JSONDecodeError:
-                messagebox.showerror("Error", response.text)
-            return None
 
     def obtener_id_consumible(self, session_token, nombre_consumible, inventory_number):
         headers = {
@@ -1294,6 +1356,7 @@ class GLPIApp:
                                 return
                             asset_data = self.procesar_qr_monitor(serial_number)
                             self.agregar_a_excel(asset_data, "Monitor")
+                            self.subir_monitor_glpi(asset_data)
                 else:
                     messagebox.showerror("Error", "Código QR no corresponde a un monitor.")
             else:
@@ -1315,74 +1378,91 @@ class GLPIApp:
                             return
                         asset_data = self.procesar_qr_monitor(serial_number)
                         self.agregar_a_excel(asset_data, "Monitor")
+                        self.subir_monitor_glpi(asset_data)
             else:
                 messagebox.showerror("Error", "El número de serie ingresado no corresponde a un monitor válido.")
         else:
             messagebox.showerror("Error", "Método no válido. Intente nuevamente.")
 
+    def subir_monitor_glpi(self, asset_data):
+        """
+        Sube el monitor registrado en Excel a GLPI.
+        """
+        try:
+            session_token = self.obtener_token_sesion()
+            if not session_token:
+                messagebox.showerror("Error", "No se pudo obtener el token de sesión.")
+                return
+
+            manufacturer_id = self.obtener_manufacturer_id(session_token, asset_data["manufacturers_id"])
+            if not manufacturer_id:
+                messagebox.showerror("Error", f"No se pudo encontrar el fabricante '{asset_data['manufacturers_id']}' en GLPI.")
+                return
+
+            headers = {
+                "Content-Type": "application/json",
+                "Session-Token": session_token,
+                "App-Token": APP_TOKEN
+            }
+
+            payload = {
+                "input": {
+                    "name": asset_data["name"],
+                    "serial": asset_data["serial"],
+                    "manufacturers_id": int(manufacturer_id),
+                    "locations_id": int(asset_data["locations_id"]),
+                    "status": "Stocked"
+                }
+            }
+
+            response = requests.post(f"{GLPI_URL}/Monitor", headers=headers, json=payload, verify=False)
+
+            if response.status_code == 201:
+                messagebox.showinfo("Éxito", f"Monitor con Serial Number '{asset_data['serial']}' registrado correctamente en GLPI.")
+            else:
+                messagebox.showerror("Error", f"Error al registrar el monitor en GLPI: {response.status_code}")
+                try:
+                    messagebox.showerror("Error", response.json())
+                except json.JSONDecodeError:
+                    messagebox.showerror("Error", response.text)
+
+        except Exception as e:
+            messagebox.showerror("Error", f"Error al subir el monitor a GLPI: {str(e)}")
+
     def procesar_qr_monitor(self, qr_data):
-        # Plantilla para monitores
-        plantilla_monitor = {
-            "asset_type": "Monitor",
-            "name": None,  # Generado automáticamente
-            "locations_id": None,  # Pedir al usuario
-            "manufacturers_id": "Dell Inc.",  # Extraído del QR
-            "serial": qr_data.strip(),  # Código QR escaneado
-            "otherserial": "",
-            "contact": "",
-            "contact_num": "",
-            "users_id_tech": "",
-            "groups_id_tech": "",
-            "comment": "Check",
-            "date_mod": "",
-            "autoupdatesystems_id": "",
-            "networks_id": "",
-            "computermodels_id": "",
-            "computertypes_id": "",
-            "is_template": "",
-            "template_name": "",
-            "is_deleted": "",
-            "is_dynamic": "",
-            "users_id": "",
-            "groups_id": "",
-            "states_id": "",
-            "ticket_tco": "",
-            "uuid": "",
-            "date_creation": "",
-            "is_recursive": "",
-            "stock_target": "",
-            "last_inventory_update": "",
-            "last_boot": "",
-            "type": "",
-            "model": None,  # Extraído del QR
-            "asset_tag": "",
-            "purchase_date": "",
-            "warranty_expiration_date": "",
-            "status": "Stocked",  # Definir un estado predeterminado
-            "location": None,  # Pedir al usuario
-            "department": "",
-            "ip_address": "",
-            "mac_address": "",
-            "operating_system": "",
-            "processor": "",
-            "ram": "",
-            "storage": "",
-            "last_user": "",
-            "supplier": "",
-            "purchase_price": "",
-            "order_number": "",
-            "invoice_number": ""
-        }
+        """
+        Genera la plantilla de datos para un monitor basado en su número de serie.
+        """
+        try:
+            # Obtener sesión de GLPI
+            session_token = self.obtener_token_sesion()
+            if not session_token:
+                messagebox.showerror("Error", "No se pudo obtener el token de sesión en GLPI.")
+                return None
 
-        # Solicitar datos adicionales al usuario
-        plantilla_monitor["location"] = simpledialog.askstring("Input", "Ingrese la ubicación del monitor:").strip()
-        #plantilla_monitor["manufacturers_id"] = simpledialog.askstring("Input", "Ingrese el fabricante del monitor:").strip()
-        #plantilla_monitor["model"] = simpledialog.askstring("Input", "Ingrese el modelo del monitor:").strip()
+            # Solicitar ubicación y obtener location_id
+            location_name = simpledialog.askstring("Input", "Ingrese la ubicación del monitor:").strip()
+            location_id = self.obtener_location_id(session_token, location_name)
 
-        # Generar el nombre del activo a partir del modelo
-        plantilla_monitor["name"] = f"{plantilla_monitor['model']}-{plantilla_monitor['serial']}"
+            if not location_id:
+                messagebox.showerror("Error", f"No se encontró la ubicación '{location_name}' en GLPI.")
+                return None
 
-        return plantilla_monitor
+            # Crear la plantilla de datos del monitor
+            plantilla_monitor = {
+                "asset_type": "Monitor",
+                "name": f"Monitor-{qr_data}",
+                "locations_id": location_id,
+                "manufacturers_id": "Dell Inc.",
+                "serial": qr_data.strip(),
+                "status": "Stocked",
+            }
+
+            return plantilla_monitor
+
+        except Exception as e:
+            messagebox.showerror("Error", f"Error al procesar el monitor: {str(e)}")
+            return None
 
     def entregar_monitor(self):
         messagebox.showinfo("Información", "--- Entregar Monitor a Usuario ---")
@@ -1560,130 +1640,42 @@ class GLPIApp:
     ## ----- Laptops -------
 
     def procesar_qr_laptop(self, flag, qr_data):
-        if flag == "Dell":
-            # Plantilla de la laptop Dell Latitude
-            plantilla_dell = {
-                "asset_type": "Computer",
-                "name": None,  # Generado a partir del nombre del usuario
-                "locations_id": None,  # Solicitar por pantalla
+        """Genera la estructura de datos para registrar una laptop en Excel y GLPI."""
+
+        # Diccionario con plantillas para cada fabricante
+        plantillas = {
+            "Dell": {
                 "manufacturers_id": "Dell Inc.",
-                "serial": qr_data.strip(),  # QR escaneado de la laptop
-                "otherserial": "",
-                "contact": "",
-                "contact_num": "",
-                "users_id_tech": "",
-                "groups_id_tech": "",
-                "comment": "Check",
-                "date_mod": "",
-                "autoupdatesystems_id": "",
-                "networks_id": "",
-                "computermodels_id": "",
-                "computertypes_id": "Laptop",
-                "is_template": "",
-                "template_name": "",
-                "is_deleted": "",
-                "is_dynamic": "",
-                "users_id": None,  # Solicitar por pantalla
-                "groups_id": "",
-                "states_id": "",
-                "ticket_tco": "",
-                "uuid": "",
-                "date_creation": "",
-                "is_recursive": "",
-                "stock_target": "",
-                "last_inventory_update": "",
-                "last_boot": "",
-                "type": "",
-                "model": "Latitude",
-                "asset_tag": "",
-                "purchase_date": "",
-                "warranty_expiration_date": "",
-                "status": "Stocked",  # Solicitar por pantalla
-                "location": None,  # Solicitar por pantalla
-                "department": "",
-                "ip_address": "",
-                "mac_address": "",
-                "operating_system": "",
-                "processor": "",
-                "ram": "",
-                "storage": "",
-                "last_user": "",
-                "supplier": "",
-                "purchase_price": "",
-                "order_number": "",
-                "invoice_number": ""
-            }
-
-            # Solicitar datos adicionales al usuario
-            plantilla_dell["location"] = simpledialog.askstring("Input", "Ingrese la ubicación del activo:").strip()
-            #plantilla_dell["users_id"] = simpledialog.askstring("Input", "Ingrese el nombre del usuario:").strip()
-            
-            # Generar el nombre del activo a partir del usuario
-            plantilla_dell["name"] = f"{plantilla_dell['users_id']}-Latitude"
-
-            return plantilla_dell
-        elif flag == "Mac":
-            # Plantilla para laptops MacBook
-            plantilla_mac = {
-                "asset_type": "Computer",
-                "name": None,  # Generado a partir del nombre del usuario
-                "locations_id": None,  # Solicitar por pantalla
+                "model": "Latitude"
+            },
+            "Mac": {
                 "manufacturers_id": "Apple Inc.",
-                "serial": qr_data.strip(),  # QR escaneado de la laptop
-                "otherserial": "",
-                "contact": "",
-                "contact_num": "",
-                "users_id_tech": "",
-                "groups_id_tech": "",
-                "comment": "Check",
-                "date_mod": "",
-                "autoupdatesystems_id": "",
-                "networks_id": "",
-                "computermodels_id": "",
-                "computertypes_id": "Laptop",
-                "is_template": "",
-                "template_name": "",
-                "is_deleted": "",
-                "is_dynamic": "",
-                "users_id": None,  # Solicitar por pantalla
-                "groups_id": "",
-                "states_id": "",
-                "ticket_tco": "",
-                "uuid": "",
-                "date_creation": "",
-                "is_recursive": "",
-                "stock_target": "",
-                "last_inventory_update": "",
-                "last_boot": "",
-                "type": "",
-                "model": "MacBook Pro",
-                "asset_tag": "",
-                "purchase_date": "",
-                "warranty_expiration_date": "",
-                "status": "Stocked",  # Solicitar por pantalla
-                "location": None,  # Solicitar por pantalla
-                "department": "",
-                "ip_address": "",
-                "mac_address": "",
-                "operating_system": "",
-                "processor": "",
-                "ram": "",
-                "storage": "",
-                "last_user": "",
-                "supplier": "",
-                "purchase_price": "",
-                "order_number": "",
-                "invoice_number": ""
+                "model": "MacBook Pro"
             }
+        }
 
-            # Solicitar datos adicionales al usuario
-            plantilla_mac["location"] = simpledialog.askstring("Input", "Ingrese la ubicación del activo:").strip()
-            #plantilla_mac["users_id"] = simpledialog.askstring("Input", "Ingrese el nombre del usuario:").strip()
-            
-            # Generar el nombre del activo a partir del usuario
-            plantilla_mac["name"] = f"{plantilla_mac['users_id']}-MacBookPro"
+        if flag not in plantillas:
+            messagebox.showerror("Error", "Fabricante no reconocido.")
+            return None
 
-            return plantilla_mac
+        # Crear la plantilla base
+        plantilla = {
+            "asset_type": "Computer",
+            "name": None,  # Se generará dinámicamente
+            "locations_id": None,  # Solicitar al usuario
+            "manufacturers_id": plantillas[flag]["manufacturers_id"],
+            "serial": qr_data.strip(),  # QR escaneado de la laptop
+            "computertypes_id": "Laptop",
+            "status": "Stocked",  # Estado inicial
+            "location": None,
+            "model": plantillas[flag]["model"]
+        }
+
+        # Generar el nombre dinámicamente (opcional, si se requiere usuario más adelante)
+        plantilla["name"] = f"{plantilla['manufacturers_id']}-{plantilla['model']}"
+
+        return plantilla
+
 
     def manejar_qr_laptop(self, flag):
         try: 
@@ -1705,7 +1697,7 @@ class GLPIApp:
                                     return
                                 else:
                                     asset_data = self.procesar_qr_laptop("Dell", serial_number)
-                                    self.agregar_a_excel(asset_data, "Computer")
+                                    #self.agregar_a_excel(asset_data, "Computer")
                                     manufacturer = "Dell Inc."
                                     return serial_number, manufacturer
                             else: 
@@ -1725,7 +1717,7 @@ class GLPIApp:
                                     return
                                 else:
                                     asset_data = self.procesar_qr_laptop("Dell", serial_number)
-                                    self.agregar_a_excel(asset_data, "Computer")
+                                    #self.agregar_a_excel(asset_data, "Computer")
                                     manufacturer = "Dell Inc."
                                     return serial_number, manufacturer
                             else: 
@@ -1753,7 +1745,7 @@ class GLPIApp:
                                     return
                                 else:
                                     asset_data = self.procesar_qr_laptop("Mac", serial_number)
-                                    self.agregar_a_excel(asset_data, "Computer")
+                                    #self.agregar_a_excel(asset_data, "Computer")
                                     manufacturer = "Apple Inc"
                                     return serial_number, manufacturer
                             else: 
@@ -1773,7 +1765,7 @@ class GLPIApp:
                                     return
                                 else:
                                     asset_data = self.procesar_qr_laptop("Mac", serial_number)
-                                    self.agregar_a_excel(asset_data, "Computer")
+                                    #self.agregar_a_excel(asset_data, "Computer")
                                     manufacturer = "Apple Inc"
                                     return serial_number, manufacturer
                             else:
@@ -1858,95 +1850,57 @@ class GLPIApp:
     def registrar_laptop(self):
         try:
             messagebox.showinfo("Información", "--- Registrar Laptop en Excel y GLPI ---")
-            result = self.manejar_qr_laptop("Register")
             
+            # Manejar el QR para obtener el serial y fabricante
+            result = self.manejar_qr_laptop("Register")
             if result is None:
                 messagebox.showerror("Error", "No se pudo obtener el serial number y el fabricante del laptop.")
                 return
             
             serial_number, manufacturer = result
 
-            # Cargar el archivo Excel
-            wb = load_workbook(ruta_excel)
-            if "Computer" not in wb.sheetnames:
-                messagebox.showerror("Error", "La hoja 'Computer' no existe en el archivo Excel.")
-                return
-            
-            ws = wb["Computer"]
-            df = pd.DataFrame(ws.values)
-            df.columns = df.iloc[0]
-            df = df[1:]
-
-            if df.empty:
-                messagebox.showerror("Error", "El archivo Excel está vacío.")
-                return
-
-            # Validar columnas necesarias
-            required_columns = ["serial", "manufacturers_id", "users_id", "name"]
-            if not all(col in df.columns for col in required_columns):
-                messagebox.showerror("Error", "El archivo Excel no contiene las columnas necesarias.")
-                return
-            
-            filtro = df[df["serial"].str.lower() == serial_number.lower()]
-
-            #if not filtro.empty:
-            #    messagebox.showinfo("Información", f"El activo con serial '{serial_number}' ya está registrado en el Excel. No se agregará.")
-            #    return
-
-            nuevo_usuario = simpledialog.askstring("Input", "Ingrese el nombre del usuario que recibirá el laptop:").strip()
-            if not nuevo_usuario:
-                messagebox.showerror("Error", "El nombre del usuario no puede estar vacío.")
-                return
-            
-            # Manejar valores NaN antes de actualizar el DataFrame
-            df["users_id"] = df["users_id"].fillna("")
-            df["name"] = df["name"].fillna("Unknown")
-
-            # Determinar el nuevo nombre del laptop en base al fabricante
-            if manufacturer in ["dell", "dell inc.", "dell inc", "dell inc.", "dell", "Dell Inc."]:
-                new_name = f"{nuevo_usuario}-Latitude"
-            elif manufacturer in ["mac", "mac inc.", "apple inc.", "apple", "Apple Inc"]:
-                new_name = f"{nuevo_usuario}-MacBookPro"
+            # Determinar el nuevo nombre del laptop según el fabricante
+            if manufacturer == "Dell Inc.":
+                new_name = "None-Latitude"
+            elif manufacturer == "Apple Inc":
+                new_name = "None-MacBookPro"
             else:
                 messagebox.showerror("Error", "No se pudo determinar el fabricante del laptop.")
                 return
-
-            # Crear un nuevo registro en el DataFrame
-            new_row = pd.DataFrame([{
-                "serial": serial_number,
-                "manufacturers_id": manufacturer,
-                "users_id": nuevo_usuario,
-                "name": new_name
-            }])
-            df = pd.concat([df, new_row], ignore_index=True)
-
-            # Limpiar las filas de datos existentes antes de escribir los datos actualizados
-            ws.delete_rows(2, ws.max_row)
-
-            # Escribir los datos actualizados de vuelta a la hoja "Computer" sin los encabezados
-            for row in dataframe_to_rows(df, index=False, header=False):
-                ws.append(row)
-
-            wb.save(ruta_excel)
-            messagebox.showinfo("Información", f"Laptop con Service Tag '{serial_number}' registrado a '{nuevo_usuario}' en el Excel.")
-
-            # Registrar en GLPI
+            
+            # Obtener sesión de GLPI
             session_token = self.obtener_token_sesion()
             if not session_token:
                 messagebox.showerror("Error", "No se pudo obtener el token de sesión.")
                 return
 
-            # Obtener el ID del usuario en GLPI
-            user_id = self.obtener_user_id(session_token, nuevo_usuario)
-            if not user_id:
-                messagebox.showerror("Error", f"No se pudo encontrar el usuario '{nuevo_usuario}' en GLPI.")
-                return
+            # Solicitar ubicación y obtener location_id
+            location_name = simpledialog.askstring("Input", "Ingrese la ubicación del activo:").strip()
+            location_id = self.obtener_location_id(session_token, location_name)
 
+            if not location_id:
+                messagebox.showerror("Error", f"No se encontró la ubicación '{location_name}' en GLPI.")
+                return
+            
             # Obtener el ID del fabricante en GLPI
             manufacturer_id = self.obtener_manufacturer_id(session_token, manufacturer)
             if not manufacturer_id:
                 messagebox.showerror("Error", f"No se pudo encontrar el fabricante '{manufacturer}' en GLPI.")
                 return
+
+            # Crear diccionario con los datos del laptop
+            asset_data = {
+                "serial": serial_number,
+                "manufacturers_id": manufacturer_id,
+                "name": new_name,
+                "status": "Stocked",  # Estado inicial en inventario
+                "location_id": location_id  # ID de ubicación obtenido de GLPI
+            }
+
+            # Agregar al Excel usando la función modularizada
+            self.agregar_a_excel(asset_data, "Computer")
+
+            # Registrar en GLPI
 
             # Definir los encabezados HTTP
             headers = {
@@ -1960,23 +1914,51 @@ class GLPIApp:
                 "input": {
                     "name": new_name,
                     "serial": serial_number,
-                    "users_id": int(user_id),  # Asegurarse de que el ID del usuario es un entero
-                    "manufacturers_id": int(manufacturer_id)  # Asegurarse de que el ID del fabricante es un entero
+                    "manufacturers_id": int(manufacturer_id),
+                    "locations_id": int(location_id),  # Se agrega el location_id a GLPI
+                    "status": "Stocked"
                 }
             }
 
             response = requests.post(f"{GLPI_URL}/Computer", headers=headers, json=payload, verify=False)
 
             if response.status_code == 201:
-                messagebox.showinfo("Éxito", f"Laptop con Service Tag '{serial_number}' registrado correctamente en GLPI.")
+                messagebox.showinfo("Éxito", f"Laptop con Service Tag '{serial_number}' registrada correctamente en GLPI.")
             else:
                 messagebox.showerror("Error", f"Error al registrar el laptop en GLPI: {response.status_code}")
                 try:
                     messagebox.showerror("Error", response.json())
                 except json.JSONDecodeError:
                     messagebox.showerror("Error", response.text)
+
         except Exception as e:
             messagebox.showerror("Error", f"Se produjo un error inesperado: {str(e)}")
+
+    def obtener_location_id(self, session_token, location_name):
+        if pd.isna(location_name) or location_name is None:
+            messagebox.showerror("Error", "Ubicación no proporcionada. No se puede registrar el consumible.")
+            return None
+
+        location_name = str(location_name).strip()  # Convertir a string y limpiar espacios
+
+        headers = {
+            "Content-Type": "application/json",
+            "Session-Token": session_token,
+            "App-Token": APP_TOKEN
+        }
+        
+        params = {'searchText': location_name, 'range': '0-999'}
+        response = requests.get(f"{GLPI_URL}/Location", headers=headers, params=params, verify=False)
+
+        if response.status_code == 200:
+            locations = response.json()
+            for location in locations:
+                if location.get("name", "").strip().lower() == location_name.lower():
+                    return location["id"]
+        
+        messagebox.showerror("Error", f"No se encontró la ubicación '{location_name}' en GLPI.")
+        return None
+
 
     def entregar_laptop(self):
         try: 
