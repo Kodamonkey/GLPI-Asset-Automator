@@ -93,7 +93,7 @@ class GLPIApp:
         self.style.theme_use("clam")  # Puedes cambiar el tema a "clam", "alt", "default", "classic"
         self.configure_styles()
         self.create_widgets()
-        self.actualizar_excel_al_iniciar()
+        #self.actualizar_excel_al_iniciar()
         
     def configure_styles(self):
         # Estilo del marco
@@ -1010,6 +1010,110 @@ class GLPIApp:
         except Exception as e:
             messagebox.showerror("Error", f"Se produjo un error inesperado: {str(e)}")
 
+    def registrar_pendientes_glpi(self):
+        """
+        Registra en GLPI todos los dispositivos que aún no tienen un ID en el Excel.
+        Luego, actualiza el Excel con los nuevos IDs obtenidos de GLPI.
+        """
+        try:
+            session_token = self.obtener_token_sesion()
+            if not session_token:
+                messagebox.showerror("Error", "No se pudo obtener el token de sesión en GLPI.")
+                return
+
+            # Cargar el archivo Excel
+            wb = load_workbook(ruta_excel)
+
+            hojas_revisar = ["Computer", "Monitor", "Consumables"]
+            headers_glpi = {
+                "Computer": "/Computer",
+                "Monitor": "/Monitor",
+                "Consumables": "/ConsumableItem"
+            }
+
+            for hoja in hojas_revisar:
+                if hoja not in wb.sheetnames:
+                    continue  # Si la hoja no existe, la ignoramos
+
+                ws = wb[hoja]
+                df = pd.DataFrame(ws.values)
+
+                # Verificar si hay datos en la hoja
+                if df.empty or len(df.columns) < 2:
+                    continue  
+
+                df.columns = df.iloc[0]  # Primera fila como encabezado
+                df = df[1:].copy()  # Eliminar la fila de encabezado duplicada
+                df = df.fillna("")  # Rellenar valores NaN con cadenas vacías
+
+                # Filtrar registros sin ID de GLPI
+                pendientes = df[df["id"] == ""]
+
+                if pendientes.empty:
+                    continue  # No hay registros pendientes en esta hoja
+
+                for idx, row in pendientes.iterrows():
+                    try:
+                        # Obtener los datos esenciales
+                        serial_number = row["serial"].strip()
+                        name = row["name"].strip()
+                        location_name = row["location"].strip()
+                        manufacturer_name = row["manufacturers_id"].strip()
+
+                        # Validaciones
+                        if not serial_number or not name:
+                            continue  # Si faltan datos esenciales, omitir esta fila
+
+                        location_id = self.obtener_location_id(session_token, location_name)
+                        manufacturer_id = self.obtener_manufacturer_id(session_token, manufacturer_name)
+
+                        if not location_id or not manufacturer_id:
+                            continue  # Si no se encuentran, no registramos este activo
+
+                        # Preparar el payload para GLPI
+                        payload = {
+                            "input": {
+                                "name": name,
+                                "serial": serial_number,
+                                "manufacturers_id": manufacturer_id,
+                                "locations_id": location_id,
+                                "status": "Stocked"
+                            }
+                        }
+
+                        # Hacer la petición a la API de GLPI
+                        headers = {
+                            "Content-Type": "application/json",
+                            "Session-Token": session_token,
+                            "App-Token": APP_TOKEN
+                        }
+
+                        endpoint = headers_glpi[hoja]
+                        response = requests.post(f"{GLPI_URL}{endpoint}", headers=headers, json=payload, verify=False)
+
+                        if response.status_code == 201:
+                            new_id = response.json().get("id")
+                            df.at[idx, "id"] = new_id  # Actualizar el ID en el DataFrame
+                            messagebox.showinfo("Éxito", f"Dispositivo '{name}' registrado en GLPI con ID {new_id}.")
+                        else:
+                            messagebox.showerror("Error", f"No se pudo registrar '{name}' en GLPI. Código: {response.status_code}")
+
+                    except Exception as e:
+                        messagebox.showerror("Error", f"Error al procesar '{row['name']}': {str(e)}")
+
+                # Sobrescribir la hoja con los datos actualizados
+                ws.delete_rows(2, ws.max_row)
+                for r_idx, row in df.iterrows():
+                    for c_idx, value in enumerate(row):
+                        ws.cell(row=r_idx + 2, column=c_idx + 1, value=value)
+
+            wb.save(ruta_excel)
+            messagebox.showinfo("Finalizado", "Se han registrado todos los dispositivos pendientes en GLPI y el Excel ha sido actualizado.")
+
+        except Exception as e:
+            messagebox.showerror("Error", f"Se produjo un error inesperado: {str(e)}")
+
+
     # ---- Consumibles ------
     # Funciones para manejar consumibles
     def actualizar_excel_consumible(self, nombre, inventory_number, location, stock):
@@ -1756,7 +1860,7 @@ class GLPIApp:
                     metodo = simpledialog.askstring("Input", "¿Desea escanear el QR o ingresar el Serial Number manualmente? (escanear/manual):").strip().lower()
                     if metodo == "escanear":
                         qr_data = self.escanear_qr_con_celular()
-                        if re.match(r'\bC02[A-Za-z0-9]{8,10}\b', qr_data) or re.match(r'^[A-Za-z0-9]{10,12}$', qr_data) or re.match(r'^S?[C02][A-Za-z0-9]{8}$', qr_data) or re.match(r'^S[A-Za-z0-9]{9}$', qr_data):
+                        if re.match(r'\bC02[A-Za-z0-9]{8,10}\b', qr_data) or re.match(r'^[A-Za-z0-9]{10,12}$', qr_data) or re.match(r'^S?[C02][A-Za-z0-9]{8}$', qr_data) or re.match(r'^S[A-Za-z0-9]{9}$', qr_data) or re.match(r'^S?[C02][A-Za-z0-9]{9}$', qr_data) or re.match(r'^S[A-Za-z0-9]{12}$', qr_data):
                             messagebox.showinfo("Información", "Laptop MacBook detectada. Procesando datos...")
                             # Remover la 'S' del serial number si existe al inicio
                             serial_number = qr_data
@@ -1888,13 +1992,36 @@ class GLPIApp:
 
             # Determinar el nuevo nombre del laptop según el fabricante
             if manufacturer == "Dell Inc.":
-                new_name = "None-Latitude"
-            elif manufacturer == "Apple Inc":
+                model = simpledialog.askstring("Input", "Ingrese el modelo Dell (Latitude/Precision):").strip()
+                if model == "Latitude":
+                    new_name = "None-Latitude"
+                elif model == "Precision":
+                    new_name = "None-Precision"
+                else: 
+                    messagebox.showerror("Error", "No se introdujo el modelo correctamente.")
+            elif manufacturer == "Apple Inc": 
+                model = "macbook"
                 new_name = "None-MacBookPro"
             else:
                 messagebox.showerror("Error", "No se pudo determinar el fabricante del laptop.")
                 return
             
+            location_name = simpledialog.askstring("Input", "Ingrese la ubicación del activo:").strip()
+
+
+            # Crear diccionario con los datos del laptop
+            asset_data = {
+                "serial": serial_number,
+                "manufacturers_id": manufacturer,
+                "name": new_name,
+                "status": "Stocked",  # Estado inicial en inventario
+                "locations_id": location_name, # ID de ubicación obtenido de GLPI
+                "computermodels_id": model
+            }
+            
+            # Agregar al Excel usando la función modularizada
+            self.agregar_a_excel(asset_data, "Computer")
+
             # Obtener sesión de GLPI
             session_token = self.obtener_token_sesion()
             if not session_token:
@@ -1902,7 +2029,7 @@ class GLPIApp:
                 return
 
             # Solicitar ubicación y obtener location_id
-            location_name = simpledialog.askstring("Input", "Ingrese la ubicación del activo:").strip()
+            
             location_id = self.obtener_location_id(session_token, location_name)
 
             if not location_id:
@@ -1914,18 +2041,6 @@ class GLPIApp:
             if not manufacturer_id:
                 messagebox.showerror("Error", f"No se pudo encontrar el fabricante '{manufacturer}' en GLPI.")
                 return
-
-            # Crear diccionario con los datos del laptop
-            asset_data = {
-                "serial": serial_number,
-                "manufacturers_id": manufacturer_id,
-                "name": new_name,
-                "status": "Stocked",  # Estado inicial en inventario
-                "location_id": location_id  # ID de ubicación obtenido de GLPI
-            }
-
-            # Agregar al Excel usando la función modularizada
-            self.agregar_a_excel(asset_data, "Computer")
 
             # Registrar en GLPI
 
