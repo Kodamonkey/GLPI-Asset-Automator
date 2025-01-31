@@ -93,6 +93,8 @@ class GLPIApp:
         self.style.theme_use("clam")  # Puedes cambiar el tema a "clam", "alt", "default", "classic"
         self.configure_styles()
         self.create_widgets()
+        self.obtener_locations(self.obtener_token_sesion())
+        self.buscar_modelos_glpi(self.obtener_token_sesion())
         #self.actualizar_excel_al_iniciar()
         
     def configure_styles(self):
@@ -167,15 +169,131 @@ class GLPIApp:
         #ttk.Button(frames["Excel/GLPI"], text="Registrar un activo por nombre", command=self.registrar_por_nombre).grid(row=2, column=0, padx=10, pady=5)
         #ttk.Button(frames["Excel/GLPI"], text="Registrar todos los activos de Excel en GLPI", command=lambda: self.procesar_archivo_excel(ruta_excel)).grid(row=3, column=0, padx=10, pady=5)
         ttk.Button(frames["Excel/GLPI"], text="Warning: Extraer TODOS Datos de GLPI a Excel", command= self.extraer_datos_glpi_a_excel).grid(row=4, column=0, padx=10, pady=5)
-        ttk.Button(frames["Excel/GLPI"], text="Salir", command=self.root.quit).grid(row=5, column=0, padx=10, pady=5)
+        ttk.Button(frames["Excel/GLPI"], text="Sincronizar con GLPI", command=self.registrar_pendientes_glpi).grid(row=5, column=0, padx=10, pady=5)
+        ttk.Button(frames["Excel/GLPI"], text="Salir", command=self.root.quit).grid(row=6, column=0, padx=10, pady=5)
 
     def center_widgets(self, frame):
         # Configurar la columna 0 del frame para centrar elementos
         frame.columnconfigure(0, weight=1)
         
     # ------- Funciones -----------
+
+    # ------ Tkinter menus --------
+    def seleccionar_metodo_ingreso(self):
+        """
+        Muestra una ventana emergente con botones para elegir entre escanear o ingresar manualmente el Service Tag.
+        """
+        def set_opcion(opcion):
+            self.metodo = opcion
+            popup.destroy()
+
+        self.metodo = None  # Variable para almacenar la opción del usuario
+        popup = tk.Toplevel(self.root)
+        popup.title("Seleccionar Método")
+        popup.geometry("300x150")
+        popup.transient(self.root)
+        popup.grab_set()
+
+        label = tk.Label(popup, text="¿Cómo desea ingresar el Service Tag?")
+        label.pack(pady=10)
+
+        boton_escanear = tk.Button(popup, text="Escanear", command=lambda: set_opcion("escanear"))
+        boton_escanear.pack(pady=5)
+
+        boton_manual = tk.Button(popup, text="Manual", command=lambda: set_opcion("manual"))
+        boton_manual.pack(pady=5)
+
+        popup.wait_window()  # Espera a que se cierre la ventana antes de continuar
+        return self.metodo
+
+    def custom_askyesnocancel(self, message):
+        dialog = Toplevel(self.root)
+        dialog.title("Confirmación")
+        Label(dialog, text=message, padx=20, pady=20).pack()
+
+        response = {"value": "cancel"}
+
+        def set_response(value):
+            response["value"] = value
+            dialog.destroy()
+
+        Button(dialog, text="Sí", command=lambda: set_response("yes")).pack(side="left", padx=10, pady=10)
+        Button(dialog, text="No", command=lambda: set_response("no")).pack(side="left", padx=10, pady=10)
+        Button(dialog, text="Sobrescribir todo", command=lambda: set_response("all")).pack(side="left", padx=10, pady=10)
+        Button(dialog, text="Omitir todo", command=lambda: set_response("none")).pack(side="left", padx=10, pady=10)
+        Button(dialog, text="Cancelar", command=lambda: set_response("cancel")).pack(side="left", padx=10, pady=10)
+
+        dialog.transient(self.root)
+        dialog.grab_set()
+        self.root.wait_window(dialog)
+
+        return response["value"]
+
+    def salir(self):
+        root.destroy()   
+
+    def menu_emergente_botones(self, tittle, label, texto1, texto2):
+        """
+        Muestra una ventana emergente con botones para elegir entre escanear o ingresar manualmente el Service Tag.
+        """
+        def set_opcion(opcion):
+            self.metodo = opcion
+            popup.destroy()
+
+        self.metodo = None  # Variable para almacenar la opción del usuario
+        popup = tk.Toplevel(self.root)
+        popup.title(f"{tittle}")
+        popup.geometry("300x150")
+        popup.transient(self.root)
+        popup.grab_set()
+
+        #label = tk.Label(popup, text="¿Cómo desea ingresar el Service Tag?")
+        label = tk.Label(popup, text=f"{label}")
+        label.pack(pady=10)
+
+        boton_1 = tk.Button(popup, text=f"{texto1}", command=lambda: set_opcion(f"{texto1}"))
+        boton_1.pack(pady=5)
+
+        boton_2 = tk.Button(popup, text=f"{texto2}", command=lambda: set_opcion(f"{texto2}"))
+        boton_2.pack(pady=5)
+
+        popup.wait_window()  # Espera a que se cierre la ventana antes de continuar
+        return self.metodo
+
+    def menu_emergente_n_botones(self, title, label_text, botones):
+        """
+        Muestra una ventana emergente con una cantidad dinámica de botones.
+
+        Parámetros:
+        - title: Título de la ventana emergente.
+        - label_text: Texto de la etiqueta en la ventana.
+        - botones: Lista de nombres de los botones.
+
+        Retorna:
+        - La opción seleccionada por el usuario.
+        """
+        def set_opcion(opcion):
+            self.opcion_seleccionada = opcion
+            popup.destroy()
+
+        self.opcion_seleccionada = None  # Variable para almacenar la opción del usuario
+        popup = tk.Toplevel(self.root)
+        popup.title(title)
+        popup.geometry("300x150")
+        popup.transient(self.root)
+        popup.grab_set()
+
+        label = tk.Label(popup, text=label_text)
+        label.pack(pady=10)
+
+        for boton_texto in botones:
+            boton = tk.Button(popup, text=boton_texto, command=lambda b=boton_texto: set_opcion(b))
+            boton.pack(pady=5)
+
+        popup.wait_window()  # Espera a que se cierre la ventana antes de continuar
+        return self.opcion_seleccionada
+
     # ----- Excel y configs. ------
-    
     def obtener_token_sesion(self):
         headers = {
             "Authorization": f"user_token {USER_TOKEN}",
@@ -865,32 +983,6 @@ class GLPIApp:
             return json.dumps(valor)
         return valor
 
-    def custom_askyesnocancel(self, message):
-        dialog = Toplevel(self.root)
-        dialog.title("Confirmación")
-        Label(dialog, text=message, padx=20, pady=20).pack()
-
-        response = {"value": "cancel"}
-
-        def set_response(value):
-            response["value"] = value
-            dialog.destroy()
-
-        Button(dialog, text="Sí", command=lambda: set_response("yes")).pack(side="left", padx=10, pady=10)
-        Button(dialog, text="No", command=lambda: set_response("no")).pack(side="left", padx=10, pady=10)
-        Button(dialog, text="Sobrescribir todo", command=lambda: set_response("all")).pack(side="left", padx=10, pady=10)
-        Button(dialog, text="Omitir todo", command=lambda: set_response("none")).pack(side="left", padx=10, pady=10)
-        Button(dialog, text="Cancelar", command=lambda: set_response("cancel")).pack(side="left", padx=10, pady=10)
-
-        dialog.transient(self.root)
-        dialog.grab_set()
-        self.root.wait_window(dialog)
-
-        return response["value"]
-
-    def salir(self):
-        root.destroy()   
-
     def actualizar_excel_al_iniciar(self):
         try:
             respuesta = messagebox.askyesno("Actualizar Excel", "¿Deseas actualizar el archivo Excel con los datos de GLPI?")
@@ -1054,30 +1146,42 @@ class GLPIApp:
 
                 for idx, row in pendientes.iterrows():
                     try:
-                        # Obtener los datos esenciales
-                        serial_number = row["serial"].strip()
-                        name = row["name"].strip()
-                        location_name = row["location"].strip()
-                        manufacturer_name = row["manufacturers_id"].strip()
+                        # Obtener los datos esenciales y eliminar espacios innecesarios
+                        serial_number = str(row.get("serial", "")).strip()
+                        name = str(row.get("name", "")).strip()
+                        location_name = str(row.get("locations_id", "")).strip()
+                        manufacturer_name = str(row.get("manufacturers_id", "")).strip()
+                        model = str(row.get("computermodels_id", "")).strip()
 
-                        # Validaciones
-                        if not serial_number or not name:
-                            continue  # Si faltan datos esenciales, omitir esta fila
+                        # Validaciones más estrictas para evitar valores None o vacíos
+                        if not serial_number or serial_number == "None":
+                            messagebox.showerror("Error", f"El dispositivo en la fila {idx} no tiene número de serie válido.")
+                            continue
+                        if not name or name == "None":
+                            messagebox.showerror("Error", f"El dispositivo en la fila {idx} no tiene nombre válido.")
+                            continue
+                        if not model or model == "None":
+                            messagebox.showerror("Error", f"El dispositivo '{name}' no tiene modelo válido.")
+                            continue
 
+                        # Obtener IDs correctos desde GLPI
                         location_id = self.obtener_location_id(session_token, location_name)
                         manufacturer_id = self.obtener_manufacturer_id(session_token, manufacturer_name)
+                        model_id = self.obtener_modelo_id(session_token, model)
 
-                        if not location_id or not manufacturer_id:
-                            continue  # Si no se encuentran, no registramos este activo
+                        if not location_id or not manufacturer_id or not model_id:
+                            messagebox.showerror("Error", f"No se encontraron los IDs para '{name}' (Ubicación: {location_name}, Fabricante: {manufacturer_name}), Model: {model_id}.")
+                            continue
 
-                        # Preparar el payload para GLPI
+                        # Construir el payload con datos validados
                         payload = {
                             "input": {
                                 "name": name,
                                 "serial": serial_number,
                                 "manufacturers_id": manufacturer_id,
                                 "locations_id": location_id,
-                                "status": "Stocked"
+                                "status": "Stocked",
+                                "computermodels_id": model_id
                             }
                         }
 
@@ -1096,10 +1200,11 @@ class GLPIApp:
                             df.at[idx, "id"] = new_id  # Actualizar el ID en el DataFrame
                             messagebox.showinfo("Éxito", f"Dispositivo '{name}' registrado en GLPI con ID {new_id}.")
                         else:
-                            messagebox.showerror("Error", f"No se pudo registrar '{name}' en GLPI. Código: {response.status_code}")
+                            messagebox.showerror("Error", f"No se pudo registrar '{name}' en GLPI. Código: {response.status_code}. Respuesta: {response.text}")
 
                     except Exception as e:
                         messagebox.showerror("Error", f"Error al procesar '{row['name']}': {str(e)}")
+
 
                 # Sobrescribir la hoja con los datos actualizados
                 ws.delete_rows(2, ws.max_row)
@@ -1113,9 +1218,7 @@ class GLPIApp:
         except Exception as e:
             messagebox.showerror("Error", f"Se produjo un error inesperado: {str(e)}")
 
-
     # ---- Consumibles ------
-    # Funciones para manejar consumibles
     def actualizar_excel_consumible(self, nombre, inventory_number, location, stock):
         if not os.path.exists(ruta_excel):
             crear_archivo_excel_con_hojas(ruta_excel, ["Consumables"])
@@ -1160,7 +1263,6 @@ class GLPIApp:
         wb.save(ruta_excel)
         messagebox.showinfo("Información", f"El consumible '{nombre}' ha sido registrado en el Excel correctamente.")
     
-    # Actualizar las funciones agregar_consumible y quitar_consumible para usar el nuevo formato
     def agregar_consumible(self):
         """
         Maneja la adición de consumibles al stock, validando si ya existen en Excel y GLPI.
@@ -1432,7 +1534,6 @@ class GLPIApp:
                 messagebox.showerror("Error", response.text)
 
     # ------ Monitor --------
-
     def manejar_qr_monitor(self):
         metodo = simpledialog.askstring("Input", "¿Desea escanear el QR o ingresar el número de serie manualmente? (qr/manual): ").strip().lower()
 
@@ -1807,23 +1908,26 @@ class GLPIApp:
     def manejar_qr_laptop(self, flag):
         try: 
             if flag == "Register":
-                manufacturer = simpledialog.askstring("Input", "Ingrese el fabricante del laptop (Dell/Mac):").strip().lower()
+                #manufacturer = simpledialog.askstring("Input", "Ingrese el fabricante del laptop (Dell/Mac):").strip().lower()
+                manufacturer = self.menu_emergente_botones("Input", "Ingrese el fabricante del laptop (Dell/Mac):", "dell", "mac")
                 serial_number = None
                 
                 if manufacturer in ["dell", "dell inc.", "dell inc", "dell inc.", "dell"]:
-                    metodo = simpledialog.askstring("Input", "¿Desea escanear el QR o ingresar el Service Tag manualmente? (escanear/manual):").strip().lower()
+                    #metodo = simpledialog.askstring("Input", "¿Desea escanear el QR o ingresar el Service Tag manualmente? (escanear/manual):").strip().lower()
+                    metodo = self.seleccionar_metodo_ingreso()
                     if metodo == "escanear":
                         qr_data = self.escanear_qr_con_celular()
                         if re.match(r'\bcs[a-z0-9]{5}\b', qr_data) or re.match(r'^[A-Za-z0-9]{7}$', qr_data):
                             messagebox.showinfo("Información", "Laptop Dell detectada. Procesando datos...")
                             serial_number = qr_data
-                            confirmacion = simpledialog.askstring("Confirmación", f"¿Es correcto este Serial Number: {serial_number} desea continuar? (sí/no):").strip().lower()
+                            #confirmacion = simpledialog.askstring("Confirmación", f"¿Es correcto este Serial Number: {serial_number} desea continuar? (sí/no):").strip().lower()
+                            confirmacion = self.menu_emergente_botones("Confirmación", f"¿Es correcto este Serial Number: {serial_number}, desea continuar?:", "Si", "No")
                             if confirmacion in ["sí", "si", "Si", "Sí"]:
                                 if self.verificar_existencia_en_excel(serial_number):
                                     messagebox.showinfo("Información", f"El activo con serial '{serial_number}' ya está registrado en el Excel. No se agregará.")
                                     return
                                 else:
-                                    asset_data = self.procesar_qr_laptop("Dell", serial_number)
+                                    #asset_data = self.procesar_qr_laptop("Dell", serial_number)
                                     #self.agregar_a_excel(asset_data, "Computer")
                                     manufacturer = "Dell Inc."
                                     return serial_number, manufacturer
@@ -1837,13 +1941,14 @@ class GLPIApp:
                         serial_number = simpledialog.askstring("Input", "Ingrese el Service Tag del laptop:").strip()
                         if re.match(r'^[A-Za-z0-9]{7}$', serial_number) or re.match(r'\bcs[a-z0-9]{5}\b', serial_number):
                             messagebox.showinfo("Información", "Laptop Dell detectada. Procesando datos...")
-                            confirmacion = simpledialog.askstring("Confirmación", f"¿Es correcto este Serial Number: {serial_number} desea continuar? (sí/no):").strip().lower()
+                            #confirmacion = simpledialog.askstring("Confirmación", f"¿Es correcto este Serial Number: {serial_number} desea continuar? (sí/no):").strip().lower()
+                            confirmacion = self.menu_emergente_botones("Confirmación", f"¿Es correcto este Serial Number: {serial_number}, desea continuar?:", "Si", "No")
                             if confirmacion in ["sí", "si", "Si", "Sí"]:
                                 if self.verificar_existencia_en_excel(serial_number):
                                     messagebox.showinfo("Información", f"El activo con serial '{serial_number}' ya está registrado en el Excel. No se agregará.")
                                     return
                                 else:
-                                    asset_data = self.procesar_qr_laptop("Dell", serial_number)
+                                    #asset_data = self.procesar_qr_laptop("Dell", serial_number)
                                     #self.agregar_a_excel(asset_data, "Computer")
                                     manufacturer = "Dell Inc."
                                     return serial_number, manufacturer
@@ -1857,7 +1962,8 @@ class GLPIApp:
                         messagebox.showerror("Error", "Método no válido. Intente nuevamente.")
                         return 
                 elif manufacturer in ["mac", "mac inc.", "apple inc.", "apple"]:
-                    metodo = simpledialog.askstring("Input", "¿Desea escanear el QR o ingresar el Serial Number manualmente? (escanear/manual):").strip().lower()
+                    #metodo = simpledialog.askstring("Input", "¿Desea escanear el QR o ingresar el Serial Number manualmente? (escanear/manual):").strip().lower()
+                    metodo = self.seleccionar_metodo_ingreso()
                     if metodo == "escanear":
                         qr_data = self.escanear_qr_con_celular()
                         if re.match(r'\bC02[A-Za-z0-9]{8,10}\b', qr_data) or re.match(r'^[A-Za-z0-9]{10,12}$', qr_data) or re.match(r'^S?[C02][A-Za-z0-9]{8}$', qr_data) or re.match(r'^S[A-Za-z0-9]{9}$', qr_data) or re.match(r'^S?[C02][A-Za-z0-9]{9}$', qr_data) or re.match(r'^S[A-Za-z0-9]{12}$', qr_data):
@@ -1865,13 +1971,14 @@ class GLPIApp:
                             # Remover la 'S' del serial number si existe al inicio
                             serial_number = qr_data
                             serial_number = serial_number[1:] if serial_number.startswith("S") else serial_number
-                            confirmacion = simpledialog.askstring("Confirmación", f"¿Es correcto este Serial Number: {serial_number} desea continuar? (sí/no):").strip().lower()
+                            #confirmacion = simpledialog.askstring("Confirmación", f"¿Es correcto este Serial Number: {serial_number} desea continuar? (sí/no):").strip().lower()
+                            confirmacion = self.menu_emergente_botones("Confirmación", f"¿Es correcto este Serial Number: {serial_number}, desea continuar?:", "Si", "No")
                             if confirmacion in ["sí", "si", "Si", "Sí"]:
                                 if self.verificar_existencia_en_excel(serial_number):
                                     messagebox.showinfo("Información", f"El activo con serial '{serial_number}' ya está registrado en el Excel. No se agregará.")
                                     return
                                 else:
-                                    asset_data = self.procesar_qr_laptop("Mac", serial_number)
+                                    #asset_data = self.procesar_qr_laptop("Mac", serial_number)
                                     #self.agregar_a_excel(asset_data, "Computer")
                                     manufacturer = "Apple Inc"
                                     return serial_number, manufacturer
@@ -1885,13 +1992,14 @@ class GLPIApp:
                         serial_number = simpledialog.askstring("Input", "Ingrese el Service Tag del laptop:").strip()
                         if re.match(r'\bC02[A-Za-z0-9]{8,10}\b', serial_number) or re.match(r'^[A-Za-z0-9]{10,12}$', serial_number) or re.match(r'^S?[C02][A-Za-z0-9]{8}$', serial_number) or re.match(r'^S[A-Za-z0-9]{9}$', serial_number):
                             messagebox.showinfo("Información", "Laptop Mac detectada. Procesando datos...")
-                            confirmacion = simpledialog.askstring("Confirmación", f"¿Es correcto este Serial Number: {serial_number} desea continuar? (sí/no):").strip().lower()
+                            #confirmacion = simpledialog.askstring("Confirmación", f"¿Es correcto este Serial Number: {serial_number} desea continuar? (sí/no):").strip().lower()
+                            confirmacion = self.menu_emergente_botones("Confirmación", f"¿Es correcto este Serial Number: {serial_number}, desea continuar?:", "Si", "No")
                             if confirmacion in ["sí", "si", "Si", "Sí"]:
                                 if self.verificar_existencia_en_excel(serial_number):
                                     messagebox.showinfo("Información", f"El activo con serial '{serial_number}' ya está registrado en el Excel. No se agregará.")
                                     return
                                 else:
-                                    asset_data = self.procesar_qr_laptop("Mac", serial_number)
+                                    #asset_data = self.procesar_qr_laptop("Mac", serial_number)
                                     #self.agregar_a_excel(asset_data, "Computer")
                                     manufacturer = "Apple Inc"
                                     return serial_number, manufacturer
@@ -1905,17 +2013,20 @@ class GLPIApp:
                     messagebox.showerror("Error", "Fabricante no válido. Intente nuevamente.")
                     return
             elif flag == "Deliver":
-                manufacturer = simpledialog.askstring("Input", "Ingrese el fabricante del laptop (Dell/Mac):").strip().lower()
+                #manufacturer = simpledialog.askstring("Input", "Ingrese el fabricante del laptop (Dell/Mac):").strip().lower()
+                manufacturer = self.menu_emergente_botones("Input", "Ingrese el fabricante del laptop (Dell/Mac):", "dell", "mac")
                 serial_number = None
                 
                 if manufacturer in ["dell", "dell inc.", "dell inc", "dell inc.", "dell"]:
-                    metodo = simpledialog.askstring("Input", "¿Desea escanear el QR o ingresar el Service Tag manualmente? (escanear/manual):").strip().lower()
+                    #metodo = simpledialog.askstring("Input", "¿Desea escanear el QR o ingresar el Service Tag manualmente? (escanear/manual):").strip().lower()
+                    metodo = self.seleccionar_metodo_ingreso()
                     if metodo == "escanear":
                         qr_data = self.escanear_qr_con_celular()
                         if re.match(r'\bcs[a-z0-9]{5}\b', qr_data) or re.match(r'^[A-Za-z0-9]{7}$', qr_data):
                             messagebox.showinfo("Información", "Laptop Dell detectada. Procesando datos...")
                             serial_number = qr_data
-                            confirmacion = simpledialog.askstring("Confirmación", f"¿Es correcto este Serial Number: {serial_number} desea continuar? (sí/no):").strip().lower()
+                            #confirmacion = simpledialog.askstring("Confirmación", f"¿Es correcto este Serial Number: {serial_number} desea continuar? (sí/no):").strip().lower()
+                            confirmacion = self.menu_emergente_botones("Confirmación", f"¿Es correcto este Serial Number: {serial_number}, desea continuar?:", "Si", "No")
                             if confirmacion in ["sí", "si", "Si", "Sí"]:
                                 manufacturer = "Dell Inc."
                                 return serial_number, manufacturer
@@ -1926,7 +2037,8 @@ class GLPIApp:
                         serial_number = simpledialog.askstring("Input", "Ingrese el Service Tag del laptop:").strip()
                         if re.match(r'^[A-Za-z0-9]{7}$', serial_number) or re.match(r'\bcs[a-z0-9]{5}\b', serial_number):
                             messagebox.showinfo("Información", "Laptop Dell detectada. Procesando datos...")
-                            confirmacion = simpledialog.askstring("Confirmación", f"¿Es correcto este Serial Number: {serial_number} desea continuar? (sí/no):").strip().lower()
+                            #confirmacion = simpledialog.askstring("Confirmación", f"¿Es correcto este Serial Number: {serial_number} desea continuar? (sí/no):").strip().lower()
+                            confirmacion = self.menu_emergente_botones("Confirmación", f"¿Es correcto este Serial Number: {serial_number}, desea continuar?:", "Si", "No")
                             if confirmacion in ["sí", "si", "Si", "Sí"]:
                                 manufacturer = "Dell Inc."
                                 return serial_number, manufacturer
@@ -1941,7 +2053,8 @@ class GLPIApp:
                         return 
                     
                 elif manufacturer in ["mac", "mac inc.", "apple inc.", "apple"]:
-                    metodo = simpledialog.askstring("Input", "¿Desea escanear el QR o ingresar el Serial Number manualmente? (escanear/manual):").strip().lower()
+                    #metodo = simpledialog.askstring("Input", "¿Desea escanear el QR o ingresar el Serial Number manualmente? (escanear/manual):").strip().lower()
+                    metodo = self.seleccionar_metodo_ingreso()
                     if metodo == "escanear":
                         qr_data = self.escanear_qr_con_celular()
                         if re.match(r'\bC02[A-Za-z0-9]{8,10}\b', qr_data) or re.match(r'^[A-Za-z0-9]{10,12}$', qr_data) or re.match(r'^S?[C02][A-Za-z0-9]{8}$', qr_data) or re.match(r'^S[A-Za-z0-9]{9}$', qr_data):
@@ -1949,7 +2062,8 @@ class GLPIApp:
                             # Remover la 'S' del serial number si existe al inicio
                             serial_number = qr_data
                             serial_number = serial_number[1:] if serial_number.startswith("S") else serial_number
-                            confirmacion = simpledialog.askstring("Confirmación", f"¿Es correcto este Serial Number: {serial_number} desea continuar? (sí/no):").strip().lower()
+                            #confirmacion = simpledialog.askstring("Confirmación", f"¿Es correcto este Serial Number: {serial_number} desea continuar? (sí/no):").strip().lower()
+                            confirmacion = self.menu_emergente_botones("Confirmación", f"¿Es correcto este Serial Number: {serial_number}, desea continuar?:", "Si", "No")
                             if confirmacion in ["sí", "si", "Si", "Sí"]:
                                 manufacturer = "Apple Inc"
                                 return serial_number, manufacturer
@@ -1960,7 +2074,8 @@ class GLPIApp:
                         serial_number = simpledialog.askstring("Input", "Ingrese el Service Tag del laptop:").strip()
                         if re.match(r'\bC02[A-Za-z0-9]{8,10}\b', serial_number) or re.match(r'^[A-Za-z0-9]{10,12}$', serial_number) or re.match(r'^S?[C02][A-Za-z0-9]{8}$', serial_number) or re.match(r'^S[A-Za-z0-9]{9}$', serial_number):
                             messagebox.showinfo("Información", "Laptop Mac detectada. Procesando datos...")
-                            confirmacion = simpledialog.askstring("Confirmación", f"¿Es correcto este Serial Number: {serial_number} desea continuar? (sí/no):").strip().lower()
+                            #confirmacion = simpledialog.askstring("Confirmación", f"¿Es correcto este Serial Number: {serial_number} desea continuar? (sí/no):").strip().lower()
+                            confirmacion = self.menu_emergente_botones("Confirmación", f"¿Es correcto este Serial Number: {serial_number}, desea continuar?:", "Si", "No")
                             if confirmacion in ["sí", "si", "Si", "Sí"]:
                                 manufacturer = "Apple Inc"
                                 return serial_number, manufacturer 
@@ -1989,10 +2104,14 @@ class GLPIApp:
                 return
             
             serial_number, manufacturer = result
-
+        
             # Determinar el nuevo nombre del laptop según el fabricante
             if manufacturer == "Dell Inc.":
-                model = simpledialog.askstring("Input", "Ingrese el modelo Dell (Latitude/Precision):").strip()
+                models_dict = self.buscar_modelos_latitude_precision(self.obtener_token_sesion())
+                models_lista = list(models_dict.values())
+                
+                #model = simpledialog.askstring("Input", "Ingrese el modelo Dell (Latitude/Precision):").strip()
+                model = self.menu_emergente_n_botones("Input Modelo Dell", "Ingrese el modelo Dell (Latitude/Precision):", models_lista)
                 if model == "Latitude":
                     new_name = "None-Latitude"
                 elif model == "Precision":
@@ -2393,6 +2512,130 @@ class GLPIApp:
         else:
             print(f"Error al buscar usuario '{nombre_usuario}': {response.status_code}")
             return "", ""  # Devolver una tupla vacía en caso de error
+
+    def obtener_locations(self, session_token):
+        try:
+            headers = {
+                "Content-Type": "application/json",
+                "Session-Token": session_token,
+                "App-Token": APP_TOKEN
+            }
+
+            params = {"range": "0-999"}
+
+            response = requests.get(f"{GLPI_URL}/Location", headers=headers, params=params, verify=False)
+
+            if response.status_code == 200:
+                locations = response.json()
+
+                # Construir un diccionario {id: name}
+                location_dict = {location["id"]: location["name"] for location in locations if "id" in location and "name" in location}
+
+                print(location_dict)
+
+            else:
+                print(f"No se pudo obtener la lista de ubicaciones. Código: {response.status_code}")
+                return {}
+
+        except Exception as e:
+            print(f"Error al obtener ubicaciones: {str(e)}")
+            return {}
+
+    def buscar_modelos_glpi(self, session_token):
+        """
+        Usa el endpoint de búsqueda de GLPI para encontrar modelos de computadoras.
+        """
+        url = f"{GLPI_URL}/ComputerModel"
+        headers = {
+            "Content-Type": "application/json",
+            "Session-Token": session_token,
+            "App-Token": APP_TOKEN
+        }
+        params = {"range": "0-999"}
+
+        response = requests.get(url, headers=headers, params=params, verify=False)
+
+        if response.status_code == 200:
+            models = response.json()
+            models_dict = {model["id"]: model["name"] for model in models if "id" in model and "name" in model}
+            print(models_dict)
+            return(models_dict)
+        else:
+            messagebox.showerror("Error", f"No se pudo buscar modelos. Código: {response.status_code}\n{response.text}")
+            return None
+
+    def buscar_modelos_latitude_precision(self, session_token):
+        """
+        Usa el endpoint de búsqueda de GLPI para encontrar modelos de computadoras.
+        Filtra solo los modelos 'Latitude {número}' o 'Precision {número}'.
+        """
+        url = f"{GLPI_URL}/ComputerModel"
+        headers = {
+            "Content-Type": "application/json",
+            "Session-Token": session_token,
+            "App-Token": APP_TOKEN
+        }
+        params = {"range": "0-999"}
+
+        response = requests.get(url, headers=headers, params=params, verify=False)
+
+        if response.status_code == 200:
+            models = response.json()
+            
+            # Expresión regular para detectar "Latitude {número}" o "Precision {número}"
+            regex = re.compile(r"^(Latitude|Precision) \d+$")
+
+            # Filtrar modelos que cumplan con la expresión regular
+            filtered_models = {model["id"]: model["name"] for model in models 
+                            if "id" in model and "name" in model and regex.match(model["name"])}
+
+            print(filtered_models)  # Mostrar en consola para verificar
+            return filtered_models  # Retorna solo los modelos Latitude o Precision con números
+
+        else:
+            messagebox.showerror("Error", f"No se pudo buscar modelos. Código: {response.status_code}\n{response.text}")
+            return None
+
+
+    def obtener_modelo_id(self, session_token, modelo_nombre):
+        """
+        Obtiene el ID de un modelo de computadora en GLPI a partir de su nombre.
+        """
+        modelos_dict = self.buscar_modelos_glpi(session_token)  # Obtener todos los modelos
+
+        if modelos_dict is None:
+            messagebox.showerror("Error", "No se pudieron obtener modelos de GLPI.")
+            return None
+
+        # Buscar el modelo por nombre (ignorando mayúsculas y espacios)
+        modelo_id = None
+        for id_, nombre in modelos_dict.items():
+            if nombre.strip().lower() == modelo_nombre.strip().lower():
+                modelo_id = id_
+                break
+
+        if modelo_id:
+            return modelo_id
+        else:
+            messagebox.showerror("Error", f"No se encontró el modelo '{modelo_nombre}' en GLPI.")
+            return None
+
+    def obtener_modelo_dell(service_tag):
+        url = f"https://api.dell.com/support/v4/assetinfo/{service_tag}"
+        headers = {
+            "Accept": "application/json",
+            "Authorization": "Bearer TU_ACCESS_TOKEN"  # Necesitas obtener un API Key de Dell
+        }
+
+        response = requests.get(url, headers=headers)
+        
+        if response.status_code == 200:
+            data = response.json()
+            modelo = data.get("Model", "Modelo no encontrado")
+            return modelo
+        else:
+            print(f"Error al obtener datos de Dell: {response.status_code}")
+            return None
 
 
 if __name__ == "__main__":
