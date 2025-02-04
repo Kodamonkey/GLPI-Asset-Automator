@@ -93,8 +93,8 @@ class GLPIApp:
         self.style.theme_use("clam")  # Puedes cambiar el tema a "clam", "alt", "default", "classic"
         self.configure_styles()
         self.create_widgets()
-        self.obtener_locations(self.obtener_token_sesion())
-        self.buscar_modelos_glpi(self.obtener_token_sesion())
+        #self.obtener_locations(self.obtener_token_sesion())
+        #self.buscar_modelos_glpi(self.obtener_token_sesion())
         #self.actualizar_excel_al_iniciar()
         
     def configure_styles(self):
@@ -243,7 +243,7 @@ class GLPIApp:
         self.metodo = None  # Variable para almacenar la opción del usuario
         popup = tk.Toplevel(self.root)
         popup.title(f"{tittle}")
-        popup.geometry("300x150")
+        popup.geometry("300x250")
         popup.transient(self.root)
         popup.grab_set()
 
@@ -333,46 +333,130 @@ class GLPIApp:
         return ws, excel_headers
 
     def verificar_existencia_asset(self, session_token, serial_number, asset_type="Computer"):
+        """
+        Verifica si un activo con el número de serie proporcionado ya existe en GLPI.
+        
+        Parámetros:
+        - session_token: Token de sesión de GLPI.
+        - serial_number: Número de serie del activo a verificar.
+        - asset_type: Tipo de activo (por defecto "Computer").
+        
+        Retorna:
+        - True si el activo existe, False en caso contrario.
+        """
         headers = {
             "Content-Type": "application/json",
             "Session-Token": session_token,
             "App-Token": APP_TOKEN
         }
 
-        # Definir los endpoints válidos para diferentes tipos de activos
+        # Mapeo de endpoints de diferentes tipos de activos
         endpoints = {
             "Computer": "Computer",
             "Monitor": "Monitor",
             "Network Equipment": "NetworkEquipment",
             "Consumables": "ConsumableItem",
+            "Printer": "Printer",
+            "Phone": "Phone",
+            "Server": "Server",
+            "Software": "Software"
         }
 
+        # Obtiene el endpoint correspondiente al tipo de activo
         endpoint = endpoints.get(asset_type, "Computer")
 
+        # Parámetros de búsqueda en GLPI
         params = {"searchText": serial_number, "range": "0-999"}
-        response = requests.get(f"{GLPI_URL}/search/{endpoint}", headers=headers, params=params, verify=False)
 
-        if response.status_code == 200:
-            assets = response.json().get("data", [])
-            for asset in assets:
-                if asset.get('5', '').strip() == serial_number:
-                    messagebox.showinfo("Información", f"El activo con número de serie '{serial_number}' ya existe en GLPI con ID: {asset.get('1')}")
-                    return True
-        else:
-            messagebox.showerror("Error", f"Error al verificar existencia del activo: {response.status_code}")
-            try:
-                messagebox.showerror("Error", response.json())
-            except json.JSONDecodeError:
-                messagebox.showerror("Error", response.text)
-        
-        return False  
+        try:
+            response = requests.get(f"{GLPI_URL}/search/{endpoint}", headers=headers, params=params, verify=False)
+
+            if response.status_code == 200:
+                assets = response.json().get("data", [])
+
+                # Verifica si el número de serie coincide con algún activo existente
+                for asset in assets:
+                    if asset.get('5', '').strip() == serial_number:
+                        messagebox.showinfo("Información", f"El activo con número de serie '{serial_number}' ya existe en GLPI con ID: {asset.get('1')}, por ende no se añadira")
+                        return True  # Activo encontrado
+
+            else:
+                messagebox.showerror("Error", f"Error al verificar existencia del activo: {response.status_code}")
+                try:
+                    messagebox.showerror("Error", response.json())
+                except json.JSONDecodeError:
+                    messagebox.showerror("Error", response.text)
+
+        except requests.RequestException as e:
+            messagebox.showerror("Error", f"Error en la solicitud HTTP: {str(e)}")
+
+        return False  # Activo no encontrado
+
+    def verificar_existencia_consumable_glpi(self, session_token, otherserial, asset_type="ConsumableItem"):
+        headers = {
+            "Content-Type": "application/json",
+            "Session-Token": session_token,
+            "App-Token": APP_TOKEN
+        }
+
+        # Mapeo de endpoints de diferentes tipos de activos
+        endpoints = {
+            "Computer": "Computer",
+            "Monitor": "Monitor",
+            "Network Equipment": "NetworkEquipment",
+            "Consumables": "ConsumableItem",
+            "Printer": "Printer",
+            "Phone": "Phone",
+            "Server": "Server",
+            "Software": "Software"
+        }
+
+        # Obtiene el endpoint correspondiente al tipo de activo
+        endpoint = endpoints.get(asset_type, "ConsumableItem")
+
+        # Parámetros de búsqueda en GLPI
+        params = {"searchText": otherserial, "range": "0-999"}
+
+        try:
+            response = requests.get(f"{GLPI_URL}/search/{endpoint}", headers=headers, params=params, verify=False)
+
+            if response.status_code == 200:
+                assets = response.json().get("data", [])
+
+                # Verifica si el número de serie coincide con algún activo existente
+                for asset in assets:
+                    if asset.get('6', '').strip() == otherserial:
+                        messagebox.showinfo("Información", f"El consumbile con numero de inventario '{otherserial}' ya existe en GLPI con ID: {asset.get('1')}, por ende no se añadira")
+                        return True  # Activo encontrado
+
+            else:
+                messagebox.showerror("Error", f"Error al verificar existencia del activo: {response.status_code}")
+                try:
+                    messagebox.showerror("Error", response.json())
+                except json.JSONDecodeError:
+                    messagebox.showerror("Error", response.text)
+
+        except requests.RequestException as e:
+            messagebox.showerror("Error", f"Error en la solicitud HTTP: {str(e)}")
+
+        return False  # Activo no encontrado
 
     def verificar_existencia_en_excel(self, serial_number):
         wb = load_workbook(ruta_excel)
         for sheet in wb.sheetnames:
             ws = wb[sheet]
-            for row in ws.iter_rows(min_row=2, values_only=True):
-                if row[3] == serial_number:  # Asumiendo que la columna "Serial Number" es la cuarta
+            for row in ws.iter_rows(values_only=True):
+                if row[4] == serial_number:  # Asumiendo que la columna "Serial Number" es la cuarta
+                    messagebox.showinfo("Información", f"El activo con número de serie '{serial_number}' ya existe en la hoja '{sheet}' del Excel.")
+                    return True
+        return False
+    
+    def verificar_existencia_en_excel_consumible(self, serial_number):
+        wb = load_workbook(ruta_excel)
+        for sheet in wb.sheetnames:
+            ws = wb[sheet]
+            for row in ws.iter_rows(values_only=True):
+                if row[5] == serial_number:  # Asumiendo que la columna "Serial Number" es la cuarta
                     messagebox.showinfo("Información", f"El activo con número de serie '{serial_number}' ya existe en la hoja '{sheet}' del Excel.")
                     return True
         return False
@@ -412,7 +496,7 @@ class GLPIApp:
             df = df[1:]  # Eliminar la primera fila de encabezados
 
             #if self.verificar_existencia_en_excel(asset_data["serial"]):
-            #   messagebox.showinfo("Información", f"El activo con serial '{asset_data['serial']}' ya está registrado en el Excel. No se agregará.")
+            #    messagebox.showinfo("Información", f"El activo con serial '{asset_data['serial']}' ya está registrado en el Excel. No se agregará.")
             #    return
 
             # Agregar el nuevo registro al DataFrame
@@ -1284,20 +1368,28 @@ class GLPIApp:
             if not filtro.empty:
                 nombre_consumible = filtro.iloc[0]["name"]
                 location = filtro.iloc[0]["location"]
+                stock_actual = filtro.iloc[0]["stock_target"]
                 messagebox.showinfo("Información", f"Consumible '{nombre_consumible}' encontrado en el Excel.")
             else:
-                messagebox.showinfo("Información", f"No se encontró un consumible con el número de inventario '{inventory_number}'. Creando nuevo...")
+                messagebox.showinfo("Información", f"No se encontró el consumible '{nombre_consumible}' en el Excel. Creando nuevo...")
                 nombre_consumible = simpledialog.askstring("Input", "Ingrese el nombre del nuevo consumible: ").strip()
                 location = simpledialog.askstring("Input", "Ingrese la ubicación del consumible: ").strip()
 
             cantidad = int(simpledialog.askstring("Input", "Ingrese la cantidad a agregar al stock: "))
+
+            nuevo_stock = stock_actual + cantidad
+
+
+            # Registrar en Excel
+            self.actualizar_excel_consumible(nombre_consumible, inventory_number, location, nuevo_stock)
 
             # Obtener sesión de GLPI
             session_token = self.obtener_token_sesion()
             if not session_token:
                 messagebox.showerror("Error", "No se pudo obtener el token de sesión.")
                 return
-
+            
+            #if self.verificar_existencia_consumable_glpi(session_token, inventory_number, asset_type="ConsumableItem") == False:
             # Obtener o crear el consumible en GLPI
             consumible_id = self.obtener_id_consumible(session_token, nombre_consumible, inventory_number)
             if not consumible_id:
@@ -1308,14 +1400,10 @@ class GLPIApp:
                     return
 
             # Obtener y actualizar el stock en GLPI
-            stock_actual = self.obtener_stock_actual(session_token, consumible_id)
-            nuevo_stock = stock_actual + cantidad
+            #stock_actual = self.obtener_stock_actual(session_token, consumible_id)
+            #nuevo_stock = stock_actual + cantidad
             self.actualizar_stock_glpi(session_token, consumible_id, nuevo_stock)
             messagebox.showinfo("Información", f"Consumible '{nombre_consumible}' actualizado a {nuevo_stock} unidades en GLPI.")
-
-            # Registrar en Excel
-            self.actualizar_excel_consumible(nombre_consumible, inventory_number, location, nuevo_stock)
-
         except Exception as e:
             messagebox.showerror("Error", f"Se produjo un error inesperado: {str(e)}")
 
@@ -1396,14 +1484,14 @@ class GLPIApp:
 
             if response.status_code == 201:
                 consumible_id = response.json().get("id")
-                messagebox.showinfo("Información", f"Consumible '{nombre}' creado exitosamente con ID {consumible_id}.")
+                #messagebox.showinfo("Información", f"Consumible '{nombre}' creado exitosamente con ID {consumible_id}.")
                 return consumible_id
             else:
                 messagebox.showerror("Error", f"Error al crear el consumible en GLPI: {response.status_code}")
                 try:
-                    messagebox.showerror("Error", response.json())
+                    print(f"Error: {response.json()}")
                 except json.JSONDecodeError:
-                    messagebox.showerror("Error", response.text)
+                    messagebox.showerror(f"Error: {response.text}")
                 return None
 
         except Exception as e:
@@ -1524,20 +1612,20 @@ class GLPIApp:
 
         response = requests.put(f"{GLPI_URL}/ConsumableItem/{consumible_id}", headers=headers, json=payload, verify=False)
 
-        if response.status_code == 200:
-            messagebox.showinfo("Información", f"Stock del consumible ID {consumible_id} actualizado correctamente a {nuevo_stock}.")
-        else:
+        if response.status_code != 200:
+            #messagebox.showinfo("Información", f"Stock del consumible ID {consumible_id} actualizado correctamente a {nuevo_stock}.")
             messagebox.showerror("Error", f"Error al actualizar el stock en GLPI: {response.status_code}")
             try:
-                messagebox.showerror("Error", response.json())
+                print(f"Error {response.json()}")
             except json.JSONDecodeError:
-                messagebox.showerror("Error", response.text)
+                print(f"Error {response.text}")
 
     # ------ Monitor --------
     def manejar_qr_monitor(self):
-        metodo = simpledialog.askstring("Input", "¿Desea escanear el QR o ingresar el número de serie manualmente? (qr/manual): ").strip().lower()
+        #metodo = simpledialog.askstring("Input", "¿Desea escanear el QR o ingresar el número de serie manualmente? (qr/manual): ").strip().lower()
+        metodo = self.seleccionar_metodo_ingreso()
 
-        if metodo == "qr":
+        if metodo == "escanear":
             qr_data = self.escanear_qr_con_celular()
             if qr_data:
                 if re.match(r'^CN[A-Z0-9]{10}$', qr_data) or re.match(r'^S?[A-Z0-9]{7}$', qr_data) or re.match(r'^(SN|S/N)\s*[A-Z0-9]{7,12}$', qr_data):
@@ -1546,18 +1634,20 @@ class GLPIApp:
                     serial_number = qr_data.strip()
 
                     if serial_number:
-                        messagebox.showinfo("Información", f"Serial Number detectado: {serial_number}")
-                        confirmacion = simpledialog.askstring("Confirmación", "¿Es correcto este Serial Number, desea continuar? (sí/no): ").strip().lower()
+                        #messagebox.showinfo("Información", f"Serial Number detectado: {serial_number}")
+                        #confirmacion = simpledialog.askstring("Confirmación", "¿Es correcto este Serial Number, desea continuar? (sí/no): ").strip().lower()
+                        confirmacion = self.menu_emergente_botones("Confirmación", f"¿Es correcto este Serial Number {serial_number}, desea continuar?:", "Si", "No")
                         if confirmacion not in ["sí", "si", "Si", "Sí"]:
                             messagebox.showinfo("Información", "Operación cancelada por el usuario.")
                             return
                         else:
                             if self.verificar_existencia_en_excel(serial_number):
-                                messagebox.showinfo("Información", f"El activo con serial '{serial_number}' ya está registrado en el Excel. No se agregará.")
+                                #messagebox.showinfo("Información", f"El activo con serial '{serial_number}' ya está registrado en el Excel. No se agregará.")
                                 return
-                            asset_data = self.procesar_qr_monitor(serial_number)
-                            self.agregar_a_excel(asset_data, "Monitor")
-                            self.subir_monitor_glpi(asset_data)
+                            #asset_data = self.procesar_qr_monitor(serial_number)
+                            #self.agregar_a_excel(asset_data, "Monitor")
+                            self.registrar_monitor(qr_data)
+                            #self.subir_monitor_glpi(asset_data)
                 else:
                     messagebox.showerror("Error", "Código QR no corresponde a un monitor.")
             else:
@@ -1569,17 +1659,20 @@ class GLPIApp:
 
                 if serial_number:
                     messagebox.showinfo("Información", f"Serial Number detectado: {serial_number}")
-                    confirmacion = simpledialog.askstring("Confirmación", "¿Es correcto este Serial Number, desea continuar? (sí/no): ").strip().lower()
+                    #confirmacion = simpledialog.askstring("Confirmación", "¿Es correcto este Serial Number, desea continuar? (sí/no): ").strip().lower()
+                    confirmacion = self.menu_emergente_botones("Confirmación", f"¿Es correcto este Serial Number {serial_number}, desea continuar?:", "Si", "No")
                     if confirmacion not in ["sí", "si", "Si", "Sí"]:
                         messagebox.showinfo("Información", "Operación cancelada por el usuario.")
                         return
                     else:
                         if self.verificar_existencia_en_excel(serial_number):
-                            messagebox.showinfo("Información", f"El activo con serial '{serial_number}' ya está registrado en el Excel. No se agregará.")
+                            #messagebox.showinfo("Información", f"El activo con serial '{serial_number}' ya está registrado en el Excel. No se agregará.")
                             return
-                        asset_data = self.procesar_qr_monitor(serial_number)
-                        self.agregar_a_excel(asset_data, "Monitor")
-                        self.subir_monitor_glpi(asset_data)
+                        else:
+                            #asset_data = self.procesar_qr_monitor(serial_number)
+                            #self.agregar_a_excel(asset_data, "Monitor")
+                            self.registrar_monitor(qr_data)
+                            #self.subir_monitor_glpi(asset_data)
             else:
                 messagebox.showerror("Error", "El número de serie ingresado no corresponde a un monitor válido.")
         else:
@@ -1594,39 +1687,39 @@ class GLPIApp:
             if not session_token:
                 messagebox.showerror("Error", "No se pudo obtener el token de sesión.")
                 return
+            if self.verificar_existencia_asset(session_token, asset_data["serial"], asset_type="Monitor") == False:
+                
+                manufacturer_id = self.obtener_manufacturer_id(session_token, asset_data["manufacturers_id"])
+                if not manufacturer_id:
+                    messagebox.showerror("Error", f"No se pudo encontrar el fabricante '{asset_data['manufacturers_id']}' en GLPI.")
+                    return
 
-            manufacturer_id = self.obtener_manufacturer_id(session_token, asset_data["manufacturers_id"])
-            if not manufacturer_id:
-                messagebox.showerror("Error", f"No se pudo encontrar el fabricante '{asset_data['manufacturers_id']}' en GLPI.")
-                return
-
-            headers = {
-                "Content-Type": "application/json",
-                "Session-Token": session_token,
-                "App-Token": APP_TOKEN
-            }
-
-            payload = {
-                "input": {
-                    "name": asset_data["name"],
-                    "serial": asset_data["serial"],
-                    "manufacturers_id": int(manufacturer_id),
-                    "locations_id": int(asset_data["locations_id"]),
-                    "status": "Stocked"
+                headers = {
+                    "Content-Type": "application/json",
+                    "Session-Token": session_token,
+                    "App-Token": APP_TOKEN
                 }
-            }
 
-            response = requests.post(f"{GLPI_URL}/Monitor", headers=headers, json=payload, verify=False)
+                payload = {
+                    "input": {
+                        "name": asset_data["name"],
+                        "serial": asset_data["serial"],
+                        "manufacturers_id": int(manufacturer_id),
+                        "locations_id": int(asset_data["locations_id"]),
+                        "status": "Stocked"
+                    }
+                }
 
-            if response.status_code == 201:
-                messagebox.showinfo("Éxito", f"Monitor con Serial Number '{asset_data['serial']}' registrado correctamente en GLPI.")
-            else:
-                messagebox.showerror("Error", f"Error al registrar el monitor en GLPI: {response.status_code}")
-                try:
-                    messagebox.showerror("Error", response.json())
-                except json.JSONDecodeError:
-                    messagebox.showerror("Error", response.text)
+                response = requests.post(f"{GLPI_URL}/Monitor", headers=headers, json=payload, verify=False)
 
+                if response.status_code == 201:
+                    messagebox.showinfo("Éxito", f"Monitor con Serial Number '{asset_data['serial']}' registrado correctamente en GLPI.")
+                else:
+                    messagebox.showerror("Error", f"Error al registrar el monitor en GLPI: {response.status_code}")
+                    try:
+                        messagebox.showerror("Error", response.json())
+                    except json.JSONDecodeError:
+                        messagebox.showerror("Error", response.text)
         except Exception as e:
             messagebox.showerror("Error", f"Error al subir el monitor a GLPI: {str(e)}")
 
@@ -1665,11 +1758,52 @@ class GLPIApp:
             messagebox.showerror("Error", f"Error al procesar el monitor: {str(e)}")
             return None
 
+    def registrar_monitor(self, qr_data):
+        try:
+            messagebox.showinfo("Información", "--- Registrar Monitor en Excel y GLPI ---")
+
+            # Escanear QR para obtener el serial del monitor
+            #qr_data = self.escanear_qr_con_celular()
+            #if not qr_data:
+            #    messagebox.showerror("Error", "No se pudo obtener el número de serie del monitor.")
+            #    return
+
+            # Obtener la ubicaciónW
+            location_name = simpledialog.askstring("Input", "Ingrese la ubicación del monitor:").strip()
+            if not location_name:
+                messagebox.showerror("Error", "Debe ingresar una ubicación válida.")
+                return
+
+            # Seleccionar el fabricante (puedes modificar o agregar más fabricantes si es necesario)
+            manufacturer = self.menu_emergente_n_botones("Seleccionar Fabricante", "Seleccione el fabricante del monitor:", ["Dell", "HP", "Samsung", "LG"])
+            if not manufacturer:
+                messagebox.showerror("Error", "Debe seleccionar un fabricante.")
+                return
+
+            # Crear plantilla de datos del monitor
+            asset_data = {
+                "serial": qr_data.strip(),
+                "manufacturers_id": manufacturer,
+                "name": f"Monitor-{qr_data}",
+                "status": "Stocked",
+                "locations_id": location_name
+            }
+
+            # Registrar primero en Excel
+            self.agregar_a_excel(asset_data, "Monitor")
+
+            # Registrar en GLPI
+            self.subir_monitor_glpi(self, asset_data)
+
+        except Exception as e:
+            messagebox.showerror("Error", f"Se produjo un error inesperado: {str(e)}")
+
     def entregar_monitor(self):
         messagebox.showinfo("Información", "--- Entregar Monitor a Usuario ---")
-        metodo = simpledialog.askstring("Input", "¿Desea escanear el QR o ingresar el número de serie manualmente? (escanear/manual):").strip().lower()
+        #metodo = simpledialog.askstring("Input", "¿Desea escanear el QR o ingresar el número de serie manualmente? (escanear/manual):").strip().lower()
+        metodo = self.menu_emergente_botones("Input", f"¿Desea escanear el QR o ingresar el número de serie manualmente?:", "Escanear", "Manual")
 
-        if metodo == "escanear":
+        if metodo == "Escanear":
             qr_data = self.escanear_qr_con_celular()
             if re.match(r'^CN[A-Z0-9]{10}$', qr_data) or re.match(r'^S?[A-Z0-9]{7}$', qr_data) or re.match(r'^(SN|S/N)\s*[A-Z0-9]{7,12}$', qr_data):
                 messagebox.showinfo("Información", "Monitor detectado. Procesando datos...")
@@ -1677,7 +1811,7 @@ class GLPIApp:
             else:
                 messagebox.showerror("Error", "Código QR no corresponde a un monitor válido.")
                 return
-        elif metodo == "manual":
+        elif metodo == "Manual":
             res = simpledialog.askstring("Input", "Ingrese el número de serie del monitor:").strip()
             if re.match(r'^CN[A-Z0-9]{10}$', res) or re.match(r'^S?[A-Z0-9]{7}$', res) or re.match(r'^(SN|S/N)\s*[A-Z0-9]{7,12}$', res):
                 serial_number = res
@@ -1710,6 +1844,30 @@ class GLPIApp:
         # Convertir a string
         nuevo_usuario = str(nuevo_usuario).strip()
 
+        manufacturer = "Dell Inc."
+
+        # Manejar valores NaN antes de actualizar el DataFrame
+        df["users_id"] = df["users_id"].fillna("")
+        df["name"] = df["name"].fillna("Unknown")
+
+        # Determinar el nuevo nombre del monitor en base al usuario
+        #manufacturer = filtro["manufacturers_id"].values[0]
+        if manufacturer == "Dell" or manufacturer == "dell" or manufacturer == "Dell inc." or manufacturer == "Dell Inc." or manufacturer == "DELL":
+            new_name = f"{nuevo_usuario}-DellMonitor"
+        #elif manufacturer == "Samsung":
+        #    new_name = f"{nuevo_usuario}-SamsungMonitor"
+        #else:
+        #    new_name = f"{nuevo_usuario}-Monitor"
+
+        df.loc[df["serial"].str.lower() == serial_number.lower(), "users_id"] = nuevo_usuario
+        df.loc[df["serial"].str.lower() == serial_number.lower(), "name"] = new_name
+        df.loc[df["serial"].str.lower() == serial_number.lower(), "manufacturers_id"] = manufacturer
+
+        df.to_excel(ruta_excel, sheet_name="Monitor", index=False)
+        messagebox.showinfo("Información", f"Monitor con número de serie '{serial_number}' asignado a '{nuevo_usuario}' en el Excel.")
+
+        # Actualizar en GLPI
+
         session_token = self.obtener_token_sesion()
         if not session_token:
             messagebox.showerror("Error", "No se pudo obtener el token de sesión.")
@@ -1719,40 +1877,16 @@ class GLPIApp:
         if not usuario_id:
             messagebox.showerror("Error", f"No se encontró el usuario '{nuevo_usuario}' en GLPI. 2")
             return
-        else:
-            messagebox.showinfo("Información", f"Se encontró el usuario '{nuevo_usuario}' en GLPI con el ID {usuario_id}.")
-        
-        manufacturer = "Dell Inc."
+        #else:
+            #messagebox.showinfo("Información", f"Se encontró el usuario '{nuevo_usuario}' en GLPI con el ID {usuario_id}.")
 
         # Obtener el ID del fabricante en GLPI
         manufacturer_id = self.obtener_manufacturer_id(session_token, manufacturer)
         if not manufacturer_id:
             messagebox.showerror("Error", f"No se encontró el fabricante '{manufacturer}' en GLPI.")
             return
-        else:
-            messagebox.showinfo("Información", f"Se encontró el fabricante '{manufacturer}' en GLPI con el ID {manufacturer_id}.")
-
-        # Manejar valores NaN antes de actualizar el DataFrame
-        df["users_id"] = df["users_id"].fillna("")
-        df["name"] = df["name"].fillna("Unknown")
-
-        # Determinar el nuevo nombre del monitor en base al usuario
-        manufacturer = filtro["manufacturers_id"].values[0]
-        if manufacturer == "Dell" or manufacturer == "dell" or manufacturer == "Dell inc." or manufacturer == "Dell Inc." or manufacturer == "DELL":
-            new_name = f"{nuevo_usuario}-DellMonitor"
-        elif manufacturer == "Samsung":
-            new_name = f"{nuevo_usuario}-SamsungMonitor"
-        else:
-            new_name = f"{nuevo_usuario}-Monitor"
-
-        df.loc[df["serial"].str.lower() == serial_number.lower(), "users_id"] = nuevo_usuario
-        df.loc[df["serial"].str.lower() == serial_number.lower(), "name"] = new_name
-        df.loc[df["serial"].str.lower() == serial_number.lower(), "manufacturers_id"] = manufacturer_id
-
-        df.to_excel(ruta_excel, sheet_name="Monitor", index=False)
-        messagebox.showinfo("Información", f"Monitor con número de serie '{serial_number}' asignado a '{nuevo_usuario}' en el Excel.")
-
-        # Actualizar en GLPI
+        #else:
+            #messagebox.showinfo("Información", f"Se encontró el fabricante '{manufacturer}' en GLPI con el ID {manufacturer_id}.")
 
         asset_id = self.obtener_asset_id_por_serial_monitor(session_token, serial_number)
         if not asset_id:
@@ -1924,7 +2058,7 @@ class GLPIApp:
                             confirmacion = self.menu_emergente_botones("Confirmación", f"¿Es correcto este Serial Number: {serial_number}, desea continuar?:", "Si", "No")
                             if confirmacion in ["sí", "si", "Si", "Sí"]:
                                 if self.verificar_existencia_en_excel(serial_number):
-                                    messagebox.showinfo("Información", f"El activo con serial '{serial_number}' ya está registrado en el Excel. No se agregará.")
+                                    #messagebox.showinfo("Información", f"El activo con serial '{serial_number}' ya está registrado en el Excel. No se agregará.")
                                     return
                                 else:
                                     #asset_data = self.procesar_qr_laptop("Dell", serial_number)
@@ -1945,7 +2079,7 @@ class GLPIApp:
                             confirmacion = self.menu_emergente_botones("Confirmación", f"¿Es correcto este Serial Number: {serial_number}, desea continuar?:", "Si", "No")
                             if confirmacion in ["sí", "si", "Si", "Sí"]:
                                 if self.verificar_existencia_en_excel(serial_number):
-                                    messagebox.showinfo("Información", f"El activo con serial '{serial_number}' ya está registrado en el Excel. No se agregará.")
+                                    #messagebox.showinfo("Información", f"El activo con serial '{serial_number}' ya está registrado en el Excel. No se agregará.")
                                     return
                                 else:
                                     #asset_data = self.procesar_qr_laptop("Dell", serial_number)
@@ -1975,7 +2109,7 @@ class GLPIApp:
                             confirmacion = self.menu_emergente_botones("Confirmación", f"¿Es correcto este Serial Number: {serial_number}, desea continuar?:", "Si", "No")
                             if confirmacion in ["sí", "si", "Si", "Sí"]:
                                 if self.verificar_existencia_en_excel(serial_number):
-                                    messagebox.showinfo("Información", f"El activo con serial '{serial_number}' ya está registrado en el Excel. No se agregará.")
+                                    #messagebox.showinfo("Información", f"El activo con serial '{serial_number}' ya está registrado en el Excel. No se agregará.")
                                     return
                                 else:
                                     #asset_data = self.procesar_qr_laptop("Mac", serial_number)
@@ -1996,7 +2130,7 @@ class GLPIApp:
                             confirmacion = self.menu_emergente_botones("Confirmación", f"¿Es correcto este Serial Number: {serial_number}, desea continuar?:", "Si", "No")
                             if confirmacion in ["sí", "si", "Si", "Sí"]:
                                 if self.verificar_existencia_en_excel(serial_number):
-                                    messagebox.showinfo("Información", f"El activo con serial '{serial_number}' ya está registrado en el Excel. No se agregará.")
+                                    #messagebox.showinfo("Información", f"El activo con serial '{serial_number}' ya está registrado en el Excel. No se agregará.")
                                     return
                                 else:
                                     #asset_data = self.procesar_qr_laptop("Mac", serial_number)
@@ -2127,7 +2261,6 @@ class GLPIApp:
             
             location_name = simpledialog.askstring("Input", "Ingrese la ubicación del activo:").strip()
 
-
             # Crear diccionario con los datos del laptop
             asset_data = {
                 "serial": serial_number,
@@ -2147,50 +2280,51 @@ class GLPIApp:
                 messagebox.showerror("Error", "No se pudo obtener el token de sesión.")
                 return
 
-            # Solicitar ubicación y obtener location_id
-            
-            location_id = self.obtener_location_id(session_token, location_name)
-
-            if not location_id:
-                messagebox.showerror("Error", f"No se encontró la ubicación '{location_name}' en GLPI.")
-                return
-            
-            # Obtener el ID del fabricante en GLPI
-            manufacturer_id = self.obtener_manufacturer_id(session_token, manufacturer)
-            if not manufacturer_id:
-                messagebox.showerror("Error", f"No se pudo encontrar el fabricante '{manufacturer}' en GLPI.")
-                return
-
             # Registrar en GLPI
+            
+            if self.verificar_existencia_asset(self, session_token, serial_number, asset_type="Computer") == False:
+                # Solicitar ubicación y obtener location_id
+                location_id = self.obtener_location_id(session_token, location_name)
+                if not location_id:
+                    messagebox.showerror("Error", f"No se encontró la ubicación '{location_name}' en GLPI.")
+                    return
+                
+                # Obtener el ID del fabricante en GLPI
+                manufacturer_id = self.obtener_manufacturer_id(session_token, manufacturer)
+                if not manufacturer_id:
+                    messagebox.showerror("Error", f"No se pudo encontrar el fabricante '{manufacturer}' en GLPI.")
+                    return
 
-            # Definir los encabezados HTTP
-            headers = {
-                "Content-Type": "application/json",
-                "Session-Token": session_token,
-                "App-Token": APP_TOKEN
-            }
-
-            # Preparar datos para la creación en GLPI
-            payload = {
-                "input": {
-                    "name": new_name,
-                    "serial": serial_number,
-                    "manufacturers_id": int(manufacturer_id),
-                    "locations_id": int(location_id),  # Se agrega el location_id a GLPI
-                    "status": "Stocked"
+                # Definir los encabezados HTTP 
+                headers = {
+                    "Content-Type": "application/json",
+                    "Session-Token": session_token,
+                    "App-Token": APP_TOKEN
                 }
-            }
 
-            response = requests.post(f"{GLPI_URL}/Computer", headers=headers, json=payload, verify=False)
+                # Preparar datos para la creación en GLPI
+                payload = {
+                    "input": {
+                        "name": new_name,
+                        "serial": serial_number,
+                        "manufacturers_id": int(manufacturer_id),
+                        "locations_id": int(location_id),  # Se agrega el location_id a GLPI
+                        "status": "Stocked"
+                    }
+                }
 
-            if response.status_code == 201:
-                messagebox.showinfo("Éxito", f"Laptop con Service Tag '{serial_number}' registrada correctamente en GLPI.")
+                response = requests.post(f"{GLPI_URL}/Computer", headers=headers, json=payload, verify=False)
+
+                if response.status_code == 201:
+                    messagebox.showinfo("Éxito", f"Laptop con Service Tag '{serial_number}' registrada correctamente en GLPI.")
+                else:
+                    messagebox.showerror("Error", f"Error al registrar el laptop en GLPI: {response.status_code}")
+                    try:
+                        messagebox.showerror("Error", response.json())
+                    except json.JSONDecodeError:
+                        messagebox.showerror("Error", response.text)
             else:
-                messagebox.showerror("Error", f"Error al registrar el laptop en GLPI: {response.status_code}")
-                try:
-                    messagebox.showerror("Error", response.json())
-                except json.JSONDecodeError:
-                    messagebox.showerror("Error", response.text)
+                messagebox.showerror("Error", f"El laptop ya existe en el GLPI")
 
         except Exception as e:
             messagebox.showerror("Error", f"Se produjo un error inesperado: {str(e)}")
@@ -2595,7 +2729,6 @@ class GLPIApp:
         else:
             messagebox.showerror("Error", f"No se pudo buscar modelos. Código: {response.status_code}\n{response.text}")
             return None
-
 
     def obtener_modelo_id(self, session_token, modelo_nombre):
         """
