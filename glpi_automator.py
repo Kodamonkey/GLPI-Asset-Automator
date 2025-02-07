@@ -1188,8 +1188,8 @@ class GLPIApp:
 
     def registrar_pendientes_glpi(self):
         """
-        Registra en GLPI todos los dispositivos que aún no tienen un ID en el Excel.
-        Luego, actualiza el Excel con los nuevos IDs obtenidos de GLPI.
+        Registra en GLPI los dispositivos sin ID en el Excel y actualiza los que tengan cambios en los campos clave.
+        Ahora verifica si el asset ya existe en GLPI usando name y serial antes de crearlo.
         """
         try:
             session_token = self.obtener_token_sesion()
@@ -1209,7 +1209,7 @@ class GLPIApp:
 
             for hoja in hojas_revisar:
                 if hoja not in wb.sheetnames:
-                    continue  # Si la hoja no existe, la ignoramos
+                    continue  # Si la hoja no existe, se ignora
 
                 ws = wb[hoja]
                 df = pd.DataFrame(ws.values)
@@ -1222,73 +1222,103 @@ class GLPIApp:
                 df = df[1:].copy()  # Eliminar la fila de encabezado duplicada
                 df = df.fillna("")  # Rellenar valores NaN con cadenas vacías
 
-                # Filtrar registros sin ID de GLPI
-                pendientes = df[df["id"] == ""]
+                # Verificar si `hoja` tiene un endpoint definido
+                endpoint = headers_glpi.get(hoja, None)
+                if not endpoint:
+                    messagebox.showerror("Error", f"No se pudo determinar el endpoint para '{hoja}'.")
+                    continue  # Saltar esta hoja y evitar errores
 
-                if pendientes.empty:
-                    continue  # No hay registros pendientes en esta hoja
-
-                for idx, row in pendientes.iterrows():
+                for idx, row in df.iterrows():
                     try:
-                        # Obtener los datos esenciales y eliminar espacios innecesarios
+                        # Obtener los datos esenciales
+                        asset_id = str(row.get("id", "")).strip()
                         serial_number = str(row.get("serial", "")).strip()
                         name = str(row.get("name", "")).strip()
                         location_name = str(row.get("locations_id", "")).strip()
                         manufacturer_name = str(row.get("manufacturers_id", "")).strip()
                         model = str(row.get("computermodels_id", "")).strip()
+                        stock_target = str(row.get("stock_target", "")).strip() if "stock_target" in df.columns else ""
 
-                        # Validaciones más estrictas para evitar valores None o vacíos
-                        if not serial_number or serial_number == "None":
-                            messagebox.showerror("Error", f"El dispositivo en la fila {idx} no tiene número de serie válido.")
-                            continue
-                        if not name or name == "None":
-                            messagebox.showerror("Error", f"El dispositivo en la fila {idx} no tiene nombre válido.")
-                            continue
-                        if not model or model == "None":
-                            messagebox.showerror("Error", f"El dispositivo '{name}' no tiene modelo válido.")
+                        # Validación: Name y Locations son obligatorios
+                        if not name or not location_name:
+                            messagebox.showerror("Error", f"El dispositivo en la fila {idx} no tiene nombre o ubicación válidos.")
                             continue
 
-                        # Obtener IDs correctos desde GLPI
-                        location_id = self.obtener_location_id(session_token, location_name)
-                        manufacturer_id = self.obtener_manufacturer_id(session_token, manufacturer_name)
-                        model_id = self.obtener_modelo_id(session_token, model)
+                        # Determinar si los IDs ya son números
+                        location_id = int(location_name) if location_name.isdigit() else self.obtener_location_id(session_token, location_name) or None
+                        manufacturer_id = int(manufacturer_name) if manufacturer_name.isdigit() else self.obtener_manufacturer_id(session_token, manufacturer_name) or None
+                        model_id = int(model) if model.isdigit() else self.obtener_modelo_id(session_token, model) or None
 
-                        if not location_id or not manufacturer_id or not model_id:
-                            messagebox.showerror("Error", f"No se encontraron los IDs para '{name}' (Ubicación: {location_name}, Fabricante: {manufacturer_name}), Model: {model_id}.")
-                            continue
+                        if not asset_id:
+                            # **Buscar si ya existe el asset en GLPI por nombre o serial**
+                            existing_asset_id = self.buscar_asset_en_glpi(session_token, serial_number, name, hoja)
+                            
+                            if existing_asset_id:
+                                df.at[idx, "id"] = existing_asset_id  # Actualizar ID en el Excel
+                                messagebox.showinfo("Información", f"El activo '{name}' ya existía en GLPI con ID {existing_asset_id}. Se ha actualizado en Excel.")
+                            else:
+                                # **Registrar el nuevo asset en GLPI**
+                                payload = {
+                                    "input": {
+                                        "name": name,
+                                        "serial": serial_number,
+                                        "locations_id": location_id,
+                                        "status": "Stocked",
+                                    }
+                                }
+                                
+                                if model_id:
+                                    payload["input"]["computermodels_id"] = model_id
+                                if manufacturer_id:
+                                    payload["input"]["manufacturers_id"] = manufacturer_id
+                                if hoja == "Consumables" and stock_target:
+                                    payload["input"]["stock_target"] = stock_target  # Solo para consumibles
 
-                        # Construir el payload con datos validados
-                        payload = {
-                            "input": {
-                                "name": name,
-                                "serial": serial_number,
-                                "manufacturers_id": manufacturer_id,
-                                "locations_id": location_id,
-                                "status": "Stocked",
-                                "computermodels_id": model_id
-                            }
-                        }
+                                headers = {
+                                    "Content-Type": "application/json",
+                                    "Session-Token": session_token,
+                                    "App-Token": APP_TOKEN
+                                }
 
-                        # Hacer la petición a la API de GLPI
-                        headers = {
-                            "Content-Type": "application/json",
-                            "Session-Token": session_token,
-                            "App-Token": APP_TOKEN
-                        }
+                                response = requests.post(f"{GLPI_URL}{endpoint}", headers=headers, json=payload, verify=False)
 
-                        endpoint = headers_glpi[hoja]
-                        response = requests.post(f"{GLPI_URL}{endpoint}", headers=headers, json=payload, verify=False)
+                                if response.status_code == 201:
+                                    new_id = response.json().get("id")
+                                    df.at[idx, "id"] = new_id  # Actualizar el ID en el DataFrame
+                                    messagebox.showinfo("Éxito", f"Dispositivo '{name}' registrado en GLPI con ID {new_id}.")
+                                else:
+                                    messagebox.showerror("Error", f"No se pudo registrar '{name}' en GLPI. Código: {response.status_code}. Respuesta: {response.text}")
 
-                        if response.status_code == 201:
-                            new_id = response.json().get("id")
-                            df.at[idx, "id"] = new_id  # Actualizar el ID en el DataFrame
-                            messagebox.showinfo("Éxito", f"Dispositivo '{name}' registrado en GLPI con ID {new_id}.")
                         else:
-                            messagebox.showerror("Error", f"No se pudo registrar '{name}' en GLPI. Código: {response.status_code}. Respuesta: {response.text}")
+                            # **Verificar si hay cambios en el asset registrado**
+                            asset_data_glpi = self.obtener_asset_glpi(session_token, asset_id, hoja)
+
+                            if not asset_data_glpi:
+                                messagebox.showerror("Error", f"No se pudo obtener información del activo {asset_id} desde GLPI.")
+                                continue
+
+                            cambios = {}
+                            if asset_data_glpi.get("locations_id", "") != location_id:
+                                cambios["locations_id"] = location_id
+                            if asset_data_glpi.get("name", "").strip() != name:
+                                cambios["name"] = name
+                            if asset_data_glpi.get("serial", "").strip() != serial_number:
+                                cambios["serial"] = serial_number
+                            if hoja == "Consumables" and asset_data_glpi.get("stock_target", "") != stock_target:
+                                cambios["stock_target"] = stock_target
+
+                            if cambios:
+                                # **Actualizar solo los campos modificados**
+                                payload_update = {"input": cambios}
+                                response_update = requests.put(f"{GLPI_URL}{endpoint}/{asset_id}", headers=headers, json=payload_update, verify=False)
+
+                                if response_update.status_code == 200:
+                                    messagebox.showinfo("Actualización", f"El activo '{name}' fue actualizado en GLPI con los nuevos cambios.")
+                                else:
+                                    messagebox.showerror("Error", f"No se pudo actualizar '{name}' en GLPI. Código: {response_update.status_code}. Respuesta: {response_update.text}")
 
                     except Exception as e:
-                        messagebox.showerror("Error", f"Error al procesar '{row['name']}': {str(e)}")
-
+                        messagebox.showerror("Error", f"Error al procesar '{row.get('name', 'Desconocido')}': {str(e)}")
 
                 # Sobrescribir la hoja con los datos actualizados
                 ws.delete_rows(2, ws.max_row)
@@ -1297,10 +1327,88 @@ class GLPIApp:
                         ws.cell(row=r_idx + 2, column=c_idx + 1, value=value)
 
             wb.save(ruta_excel)
-            messagebox.showinfo("Finalizado", "Se han registrado todos los dispositivos pendientes en GLPI y el Excel ha sido actualizado.")
+            messagebox.showinfo("Finalizado", "Se han registrado y actualizado los dispositivos en GLPI y el Excel ha sido actualizado.")
 
         except Exception as e:
             messagebox.showerror("Error", f"Se produjo un error inesperado: {str(e)}")
+
+
+    def buscar_asset_en_glpi(self, session_token, serial_number, name, asset_type):
+        """
+        Busca un activo en GLPI por serial_number o name.
+        Retorna el ID si existe, o None si no se encuentra.
+        """
+        try:
+            # Definir los endpoints de búsqueda según el tipo de activo
+            search_endpoints = {
+                
+                "Computer": "search/Computer",
+                "Monitor": "search/Monitor",
+                "Consumables": "search/ConsumableItem",
+            }
+
+            endpoint = search_endpoints.get(asset_type)
+            if not endpoint:
+                messagebox.showerror("Error", f"Tipo de activo '{asset_type}' no válido para búsqueda en GLPI.")
+                return None
+
+            headers = {
+                "Content-Type": "application/json",
+                "Session-Token": session_token,
+                "App-Token": APP_TOKEN
+            }
+
+            # Intentar buscar por número de serie si está disponible
+            if serial_number:
+                params = {"searchText": serial_number, "range": "0-10"}
+                response = requests.get(f"{GLPI_URL}/{endpoint}", headers=headers, params=params, verify=False)
+
+                if response.status_code == 200:
+                    assets = response.json().get("data", [])
+                    if assets:
+                        return assets[0].get("1")  # Retorna el ID del primer resultado encontrado
+
+            # Intentar buscar por nombre si no se encontró por serial
+            if name:
+                params = {"searchText": name, "range": "0-10"}
+                response = requests.get(f"{GLPI_URL}/{endpoint}", headers=headers, params=params, verify=False)
+
+                if response.status_code == 200:
+                    assets = response.json().get("data", [])
+                    if assets:
+                        return assets[0].get("1")  # Retorna el ID del primer resultado encontrado
+
+        except Exception as e:
+            messagebox.showerror("Error", f"Error al buscar asset en GLPI: {str(e)}")
+
+        return None  # Si no se encontró el activo, retorna None
+
+
+    def obtener_asset_glpi(self, session_token, asset_id, asset_type):
+        """
+        Obtiene la información actual de un activo en GLPI.
+        """
+        headers = {
+            "Content-Type": "application/json",
+            "Session-Token": session_token,
+            "App-Token": APP_TOKEN
+        }
+
+        endpoints = {
+            "Computer": "/Computer",
+            "Monitor": "/Monitor",
+            "Consumables": "/ConsumableItem"
+        }
+
+        endpoint = endpoints.get(asset_type, "/Computer")
+
+        response = requests.get(f"{GLPI_URL}{endpoint}/{asset_id}", headers=headers, verify=False)
+
+        if response.status_code == 200:
+            return response.json()
+        else:
+            return None
+
 
     # ---- Consumibles ------
     def actualizar_excel_consumible(self, nombre, inventory_number, location, stock):
